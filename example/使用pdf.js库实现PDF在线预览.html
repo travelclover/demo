@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>使用pdf.js库实现PDF在线预览</title>
+    <style>
+      html,
+      body {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="../libs/pdfjs-2.5.207-es5-dist/pdf.js"></script>
+
+    <div>
+      <button id="prev-btn">上一页</button>
+      <button id="next-btn">下一页</button>
+      <button id="bigger-btn">放大</button>
+      <button id="smaller-btn">缩小</button>
+    </div>
+    <canvas id="the-canvas"></canvas>
+
+    <script>
+      const prevBtn = document.getElementById('prev-btn'); // 上一页按钮
+      const nextBtn = document.getElementById('next-btn'); // 下一页按钮
+      const biggerBtn = document.getElementById('bigger-btn'); // 放大按钮
+      const smallerBtn = document.getElementById('smaller-btn'); // 缩小按钮
+      const canvas = document.getElementById('the-canvas');
+      const context = canvas.getContext('2d');
+      const pdfjsLib = window.pdfjsLib;
+
+      let pdfDoc = null; // pdf文档
+      let pageNum = 1; // 页码
+      let loading = false; // 是否在加载中
+      let scale = 1; // 放大比例
+
+      const loadingTask = pdfjsLib.getDocument('../assets/doc/pdf.pdf');
+      loadingTask.promise.then((pdf) => {
+        pdfDoc = pdf;
+        renderPage(1);
+      });
+
+      prevBtn.addEventListener('click', onPrevPage, false); // 绑定上一页按钮事件
+      nextBtn.addEventListener('click', onNextPage, false); // 绑定下一页按钮事件
+      biggerBtn.addEventListener('click', onBigger, false); // 绑定放大按钮事件
+      smallerBtn.addEventListener('click', onSmaller, false); // 绑定缩小按钮事件
+
+      // 上一页
+      function onPrevPage() {
+        if (pageNum <= 1 || loading) {
+          return;
+        }
+        pageNum--;
+        renderPage(pageNum);
+      }
+
+      // 下一页
+      function onNextPage() {
+        if (pageNum >= pdfDoc.numPages || loading) {
+          return;
+        }
+        pageNum++;
+        renderPage(pageNum);
+      }
+
+      // 放大
+      function onBigger() {
+        if (scale > 3) {
+          return;
+        }
+        scale += 0.1;
+        renderPage(pageNum);
+      }
+
+      // 缩小
+      function onSmaller() {
+        if (scale < 0.3) {
+          return;
+        }
+        scale -= 0.1;
+        renderPage(pageNum);
+      }
+
+      // 渲染页面
+      function renderPage(pageNum) {
+        loading = true;
+        pdfDoc.getPage(pageNum).then(function (page) {
+          const viewport = page.getViewport({ scale: scale });
+
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport,
+          };
+          const renderTask = page.render(renderContext);
+          renderTask.promise.then(() => {
+            loading = false;
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
