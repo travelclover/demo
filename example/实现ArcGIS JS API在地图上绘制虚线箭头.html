@@ -1,0 +1,293 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>实现ArcGIS JS API在地图上绘制虚线箭头</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.16/esri/css/main.css"
+    />
+    <script src="https://js.arcgis.com/4.16/"></script>
+
+    <script type="module">
+      import * as THREE from '../libs/threejs/three.module.r119.js';
+      import {
+        CSS2DRenderer,
+        CSS2DObject,
+      } from '../libs/threejs/CSS2DRenderer.js';
+
+      require([
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/Graphic',
+        'esri/geometry/Polyline',
+        'esri/layers/GraphicsLayer',
+        'esri/geometry/geometryEngine',
+        'esri/geometry/Point',
+      ], function (
+        Map,
+        SceneView,
+        Graphic,
+        Polyline,
+        GraphicsLayer,
+        geometryEngine,
+        Point
+      ) {
+        const lineSymbol = {
+          type: 'simple-line',
+          width: '8px',
+          color: '#ff0000',
+        };
+        const pointSymbol = {
+          type: 'simple-marker',
+          color: '#ffffff',
+          size: '8px',
+          outline: {
+            color: '#000000',
+            width: 1,
+          },
+        };
+        const map = new Map({
+          basemap: 'topo-vector',
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [104.06340647710485, 30.659828202233566, 1000],
+            tilt: 0,
+          },
+        });
+        let clickHandler; // 点击事件
+        let doubleClickHandler; // 双击事件
+        let pathPoints = []; // 画线过程中点击的点列表
+        let linesPath = []; // 画好的线路经
+        let tempLayer = createLayer({ id: 'tempLayer', title: '临时图层' }); // 创建临时图层
+        let lineLayer = createLayer({ id: 'lineLayer', title: '虚线箭头图层' });
+
+        map.add(tempLayer);
+        map.add(lineLayer);
+
+        let resolutionOnChange = throttle(() => {
+          updateLine();
+          updateGraphics();
+        }, 300);
+        createClickHandler();
+        view.watch('resolution', (newValue, oldValue, propertyName, target) => {
+          if (Math.abs(newValue - oldValue) > 0.001) {
+            resolutionOnChange();
+          }
+        });
+
+        // 函数截流
+        function throttle(fn, delay) {
+          let pre = Date.now();
+          return function () {
+            const context = this;
+            const args = arguments;
+            const now = Date.now();
+            if (now - pre >= delay) {
+              fn.apply(context, args);
+              pre = Date.now();
+            }
+          };
+        }
+
+        // 绑定点击事件
+        function createClickHandler() {
+          removeClickHandler(); // 清除点击事件
+          view.container.style.cursor = 'crosshair';
+          clickHandler = view.on('click', (event) => {
+            console.log(event);
+            pathPoints.push(event.mapPoint);
+            updateGraphics(); // 更新图形
+          });
+          // 双击结束
+          doubleClickHandler = view.on('double-click', (event) => {
+            if (pathPoints.length > 0) {
+              event.stopPropagation();
+              removeClickHandler();
+              pathPoints.push(event.mapPoint);
+              linesPath.push([].concat(pathPoints));
+              updateLine();
+              pathPoints = [];
+              tempLayer.removeAll();
+              createClickHandler();
+            }
+          });
+        }
+
+        // 清除点击事件
+        function removeClickHandler() {
+          view.container.style.cursor = 'default';
+          if (clickHandler) {
+            clickHandler.remove();
+            clickHandler = null;
+          }
+          if (doubleClickHandler) {
+            doubleClickHandler.remove();
+            doubleClickHandler = null;
+          }
+        }
+
+        // 生成图层
+        function createLayer(options) {
+          let layer = new GraphicsLayer(options);
+          return layer;
+        }
+
+        // 更新
+        function updateGraphics() {
+          tempLayer.removeAll(); // 清除全部
+          let pointGraphics = [];
+          let paths = [];
+          for (let i = 0; i < pathPoints.length; i++) {
+            pointGraphics.push(
+              new Graphic({
+                geometry: pathPoints[i],
+                symbol: pointSymbol,
+              })
+            );
+            if (i > 0) {
+              // 获取线段之间的虚线paths
+              let dottedPaths = getSegmentDottedPaths(
+                pathPoints[i - 1],
+                pathPoints[i]
+              );
+              paths = paths.concat(dottedPaths);
+            }
+          }
+          let line = new Polyline({
+            paths: paths,
+            spatialReference: pathPoints[0]
+              ? pathPoints[0].spatialReference
+              : null,
+          });
+          let graphic = new Graphic({
+            geometry: line,
+            symbol: lineSymbol,
+          });
+          tempLayer.add(graphic);
+          tempLayer.addMany(pointGraphics);
+        }
+
+        // 更新线
+        function updateLine() {
+          lineLayer.removeAll();
+          linesPath.forEach((item) => {
+            let paths = [];
+            for (let i = 1; i < item.length; i++) {
+              let dottedPaths = getSegmentDottedPaths(item[i - 1], item[i]);
+              paths = paths.concat(dottedPaths);
+            }
+            // 获取箭头的paths
+            let number = item.length; // 点的数量
+            let p1 = item[number - 2];
+            let p2 = item[number - 1];
+            let arrowPaths = getArrowPaths(p1, p2);
+            paths = paths.concat(arrowPaths);
+            let line = new Polyline({
+              paths: paths,
+              spatialReference: p1.spatialReference,
+            });
+            let lineGraphic = new Graphic({
+              geometry: line,
+              symbol: lineSymbol,
+            });
+            lineLayer.add(lineGraphic);
+          });
+        }
+
+        // 获取线段的虚线paths
+        function getSegmentDottedPaths(p1, p2) {
+          let resolution = view.resolution;
+          let distance = 20 * resolution;
+          let alpha = 0; // 角度
+
+          if (p2.x - p1.x !== 0) {
+            alpha = Math.atan((p2.y - p1.y) / (p2.x - p1.x));
+            if (p2.x < p1.x) {
+              alpha += Math.PI;
+            }
+          }
+
+          // 两点之间的长度
+          let length = Math.sqrt(
+            Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
+          );
+          let segmentLength = Math.floor(length / distance); // 线段数量
+          let paths = [];
+          for (let i = 0; i <= segmentLength; i++) {
+            if (i % 2 === 0) {
+              let startX = p1.x + distance * i * Math.cos(alpha);
+              let startY = p1.y + distance * i * Math.sin(alpha);
+              let endX = p1.x + distance * (i + 1) * Math.cos(alpha);
+              let endY = p1.y + distance * (i + 1) * Math.sin(alpha);
+              if (i === segmentLength) {
+                endX = p2.x;
+                endY = p2.y;
+              }
+              paths.push([
+                [startX, startY],
+                [endX, endY],
+              ]);
+            }
+          }
+          return paths;
+        }
+
+        // 获取箭头paths
+        function getArrowPaths(p1, p2) {
+          let resolution = view.resolution; // 分辨率
+          let distance = 20 * resolution; // 箭头长度
+          // 最后一段线段长度
+          let length = Math.sqrt(
+            Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
+          );
+          let ratio = distance / length; // 比例
+          let deltaX = (p2.x - p1.x) * ratio;
+          let deltaY = (p2.y - p1.y) * ratio;
+          let p0 = new Point({
+            x: p2.x - deltaX,
+            y: p2.y - deltaY,
+            spatialReference: p1.spatialReference,
+          });
+          let line = new Polyline({
+            paths: [
+              [
+                [p0.x, p0.y],
+                [p2.x, p2.y],
+              ],
+            ],
+            spatialReference: p1.spatialReference,
+          });
+          let line1 = geometryEngine.rotate(line, 30, p2);
+          let line2 = geometryEngine.rotate(line, -30, p2);
+          let paths = [];
+          paths.push(...line.paths);
+          paths.push(...line1.paths);
+          paths.push(...line2.paths);
+          return paths;
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
