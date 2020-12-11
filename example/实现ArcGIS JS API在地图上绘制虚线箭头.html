@@ -83,15 +83,13 @@
         map.add(tempLayer);
         map.add(lineLayer);
 
-        let resolutionOnChange = throttle(() => {
+        let extentOnChange = throttle(() => {
           updateLine();
           updateGraphics();
         }, 300);
         createClickHandler();
-        view.watch('resolution', (newValue, oldValue, propertyName, target) => {
-          if (Math.abs(newValue - oldValue) > 0.001) {
-            resolutionOnChange();
-          }
+        view.watch('extent', () => {
+          extentOnChange();
         });
 
         // 函数截流
@@ -155,7 +153,6 @@
         function updateGraphics() {
           tempLayer.removeAll(); // 清除全部
           let pointGraphics = [];
-          let paths = [];
           for (let i = 0; i < pathPoints.length; i++) {
             pointGraphics.push(
               new Graphic({
@@ -163,13 +160,23 @@
                 symbol: pointSymbol,
               })
             );
-            if (i > 0) {
-              // 获取线段之间的虚线paths
-              let dottedPaths = getSegmentDottedPaths(
-                pathPoints[i - 1],
-                pathPoints[i]
-              );
-              paths = paths.concat(dottedPaths);
+          }
+          tempLayer.addMany(pointGraphics);
+
+          let paths = [];
+          let fullLine = createLineByPoints(pathPoints);
+          let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
+          if (cliped && cliped.paths.length && cliped.paths[0].length) {
+            for (let i = 0; i < cliped.paths.length; i++) {
+              let arr = [];
+              for (let j = 1; j < cliped.paths[i].length; j++) {
+                let dottedPaths = getSegmentDottedPaths(
+                  cliped.paths[i][j - 1],
+                  cliped.paths[i][j]
+                );
+                arr.push(...dottedPaths);
+              }
+              paths.push(...arr);
             }
           }
           let line = new Polyline({
@@ -183,34 +190,54 @@
             symbol: lineSymbol,
           });
           tempLayer.add(graphic);
-          tempLayer.addMany(pointGraphics);
         }
 
         // 更新线
         function updateLine() {
           lineLayer.removeAll();
           linesPath.forEach((item) => {
+            let fullLine = createLineByPoints(item);
+            let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
             let paths = [];
-            for (let i = 1; i < item.length; i++) {
-              let dottedPaths = getSegmentDottedPaths(item[i - 1], item[i]);
-              paths = paths.concat(dottedPaths);
+            if (cliped && cliped.paths.length && cliped.paths[0].length) {
+              for (let i = 0; i < cliped.paths.length; i++) {
+                let arr = [];
+                for (let j = 1; j < cliped.paths[i].length; j++) {
+                  let dottedPaths = getSegmentDottedPaths(
+                    cliped.paths[i][j - 1],
+                    cliped.paths[i][j]
+                  );
+                  arr.push(...dottedPaths);
+                }
+                paths.push(...arr);
+              }
+              // 获取箭头的paths
+              let number = item.length; // 点的数量
+              let p1 = item[number - 2];
+              let p2 = item[number - 1];
+              let arrowPaths = getArrowPaths(p1, p2);
+              paths = paths.concat(arrowPaths);
+              let line = new Polyline({
+                paths: paths,
+                spatialReference: p1.spatialReference,
+              });
+              let lineGraphic = new Graphic({
+                geometry: line,
+                symbol: lineSymbol,
+              });
+              lineLayer.add(lineGraphic);
             }
-            // 获取箭头的paths
-            let number = item.length; // 点的数量
-            let p1 = item[number - 2];
-            let p2 = item[number - 1];
-            let arrowPaths = getArrowPaths(p1, p2);
-            paths = paths.concat(arrowPaths);
-            let line = new Polyline({
-              paths: paths,
-              spatialReference: p1.spatialReference,
-            });
-            let lineGraphic = new Graphic({
-              geometry: line,
-              symbol: lineSymbol,
-            });
-            lineLayer.add(lineGraphic);
           });
+        }
+
+        // 通过点列表生成线
+        function createLineByPoints(points) {
+          let paths = points.map((point) => [point.x, point.y]);
+          let line = new Polyline({
+            paths: [paths],
+            spatialReference: points[0] ? points[0].spatialReference : null,
+          });
+          return line;
         }
 
         // 获取线段的虚线paths
@@ -219,28 +246,28 @@
           let distance = 20 * resolution;
           let alpha = 0; // 角度
 
-          if (p2.x - p1.x !== 0) {
-            alpha = Math.atan((p2.y - p1.y) / (p2.x - p1.x));
-            if (p2.x < p1.x) {
+          if (p2[0] - p1[0] !== 0) {
+            alpha = Math.atan((p2[1] - p1[1]) / (p2[0] - p1[0]));
+            if (p2[0] < p1[0]) {
               alpha += Math.PI;
             }
           }
 
           // 两点之间的长度
           let length = Math.sqrt(
-            Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
+            Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2)
           );
           let segmentLength = Math.floor(length / distance); // 线段数量
           let paths = [];
           for (let i = 0; i <= segmentLength; i++) {
             if (i % 2 === 0) {
-              let startX = p1.x + distance * i * Math.cos(alpha);
-              let startY = p1.y + distance * i * Math.sin(alpha);
-              let endX = p1.x + distance * (i + 1) * Math.cos(alpha);
-              let endY = p1.y + distance * (i + 1) * Math.sin(alpha);
+              let startX = p1[0] + distance * i * Math.cos(alpha);
+              let startY = p1[1] + distance * i * Math.sin(alpha);
+              let endX = p1[0] + distance * (i + 1) * Math.cos(alpha);
+              let endY = p1[1] + distance * (i + 1) * Math.sin(alpha);
               if (i === segmentLength) {
-                endX = p2.x;
-                endY = p2.y;
+                endX = p2[0];
+                endY = p2[1];
               }
               paths.push([
                 [startX, startY],
