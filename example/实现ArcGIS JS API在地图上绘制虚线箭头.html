@@ -121,7 +121,10 @@
               event.stopPropagation();
               removeClickHandler();
               pathPoints.push(event.mapPoint);
-              linesPath.push([].concat(pathPoints));
+              linesPath.push({
+                lineStyle: document.getElementById('form').lineStyle.value,
+                points: pathPoints,
+              });
               updateLine();
               pathPoints = [];
               tempLayer.removeAll();
@@ -152,7 +155,7 @@
         // 更新
         function updateGraphics() {
           tempLayer.removeAll(); // 清除全部
-          let pointGraphics = [];
+          let pointGraphics = []; // 小圆点列表
           for (let i = 0; i < pathPoints.length; i++) {
             pointGraphics.push(
               new Graphic({
@@ -164,41 +167,12 @@
           tempLayer.addMany(pointGraphics);
 
           let paths = [];
-          let fullLine = createLineByPoints(pathPoints);
-          let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
-          if (cliped && cliped.paths.length && cliped.paths[0].length) {
-            for (let i = 0; i < cliped.paths.length; i++) {
-              let arr = [];
-              for (let j = 1; j < cliped.paths[i].length; j++) {
-                let dottedPaths = getSegmentDottedPaths(
-                  cliped.paths[i][j - 1],
-                  cliped.paths[i][j]
-                );
-                arr.push(...dottedPaths);
-              }
-              paths.push(...arr);
-            }
-          }
-          let line = new Polyline({
-            paths: paths,
-            spatialReference: pathPoints[0]
-              ? pathPoints[0].spatialReference
-              : null,
-          });
-          let graphic = new Graphic({
-            geometry: line,
-            symbol: lineSymbol,
-          });
-          tempLayer.add(graphic);
-        }
-
-        // 更新线
-        function updateLine() {
-          lineLayer.removeAll();
-          linesPath.forEach((item) => {
-            let fullLine = createLineByPoints(item);
+          // 判断线类型
+          let lineStyle = document.getElementById('form').lineStyle.value;
+          if (lineStyle === 'straight') {
+            // 直线
+            let fullLine = createLineByPoints(pathPoints);
             let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
-            let paths = [];
             if (cliped && cliped.paths.length && cliped.paths[0].length) {
               for (let i = 0; i < cliped.paths.length; i++) {
                 let arr = [];
@@ -211,15 +185,163 @@
                 }
                 paths.push(...arr);
               }
-              // 获取箭头的paths
-              let number = item.length; // 点的数量
-              let p1 = item[number - 2];
-              let p2 = item[number - 1];
-              let arrowPaths = getArrowPaths(p1, p2);
-              paths = paths.concat(arrowPaths);
+            }
+          } else if (lineStyle === 'curve') {
+            // 曲线
+            let points = pathPoints.map((item) => [item.x, item.y]);
+            paths = getCurvePaths(points);
+          }
+          let line = new Polyline({
+            paths: paths,
+            spatialReference: view.spatialReference,
+          });
+          let graphic = new Graphic({
+            geometry: line,
+            symbol: lineSymbol,
+          });
+          tempLayer.add(graphic);
+        }
+
+        // 获取曲线paths
+        function getCurvePaths(points) {
+          let paths = [];
+          if (points.length === 2) {
+            // 只有两个点时画直线
+            let dottedPaths = getSegmentDottedPaths(
+              [points[0][0], points[0][1]],
+              [points[1][0], points[1][1]]
+            );
+            paths.push(...dottedPaths);
+          } else if (points.length > 2) {
+            // 大于两个点时画贝塞尔曲线
+            let controlPoints = getBezierControlPoints(points); // 控制点
+            let bezierPoints = [];
+            for (let i = 0; i < points.length - 1; i++) {
+              let list = getBezierPoints(
+                100,
+                points[i],
+                controlPoints[i * 2],
+                controlPoints[i * 2 + 1],
+                points[i + 1]
+              );
+              bezierPoints = bezierPoints.concat(list);
+            }
+            let fullLine = new Polyline({
+              paths: [bezierPoints],
+              spatialReference: view.spatialReference,
+            });
+            let resolution = view.resolution;
+            let distance = 20 * resolution;
+            let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
+            if (cliped && cliped.paths.length && cliped.paths[0].length) {
+              for (let i = 0; i < cliped.paths.length; i++) {
+                let path = [];
+                let len = 0; // 长度
+                let isSpace = false; // 是否是间隔段
+                for (let j = 1; j < cliped.paths[i].length; j++) {
+                  let p1 = cliped.paths[i][j - 1];
+                  let p2 = cliped.paths[i][j];
+                  let loop = true; // 是否循环
+                  while (loop) {
+                    if (len === 0) {
+                      path.push(p1);
+                    }
+                    // 两点距离
+                    let dis = Math.sqrt(
+                      Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2)
+                    );
+                    if (len + dis > distance) {
+                      // 长度大于虚线线段长度，则需要加点分割
+                      let delta = distance - len; //
+                      let ratio = delta / dis;
+                      let p_x = p1[0] + (p2[0] - p1[0]) * ratio; // 分割点x坐标
+                      let p_y = p1[1] + (p2[1] - p1[1]) * ratio; // 分割点y坐标
+                      path.push([p_x, p_y]);
+                      if (!isSpace) {
+                        paths.push(path);
+                      }
+                      isSpace = !isSpace;
+                      len = 0;
+                      path = [];
+                      p1 = [p_x, p_y];
+                    } else if (len + dis < distance) {
+                      path.push(p2);
+                      len += dis;
+                      loop = false;
+                    } else {
+                      path.push(p2);
+                      if (!isSpace) {
+                        paths.push(path);
+                      }
+                      isSpace = !isSpace;
+                      len = 0;
+                      path = [];
+                      loop = false;
+                    }
+                  }
+                }
+                if (i === cliped.paths.length - 1) {
+                  paths.push(path);
+                }
+              }
+            }
+          }
+          return paths;
+        }
+
+        // 更新线
+        function updateLine() {
+          lineLayer.removeAll();
+          linesPath.forEach((item) => {
+            let paths = [];
+            let p1; // 用来计算箭头方向的点
+            let p2; // 用来计算箭头方向的点
+            if (item.lineStyle === 'straight') {
+              let fullLine = createLineByPoints(item.points);
+              let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
+              if (cliped && cliped.paths.length && cliped.paths[0].length) {
+                for (let i = 0; i < cliped.paths.length; i++) {
+                  let arr = [];
+                  for (let j = 1; j < cliped.paths[i].length; j++) {
+                    let dottedPaths = getSegmentDottedPaths(
+                      cliped.paths[i][j - 1],
+                      cliped.paths[i][j]
+                    );
+                    arr.push(...dottedPaths);
+                  }
+                  paths.push(...arr);
+                }
+                let number = item.points.length; // 点的数量
+                p1 = [item.points[number - 2].x, item.points[number - 2].y];
+                p2 = [item.points[number - 1].x, item.points[number - 1].y];
+              }
+            } else if (item.lineStyle === 'curve') {
+              // 曲线
+              let points = item.points.map((point) => [point.x, point.y]); // 将x,y坐标转换为数组模式
+              paths = getCurvePaths(points);
+              if (paths.length > 0) {
+                let pathsLength = paths.length;
+                let pathLength = paths[pathsLength - 1].length;
+                let endPoint = paths[pathsLength - 1][pathLength - 1];
+                // 判断最后一个点坐标是否是点击的最后一个坐标
+                if (
+                  endPoint[0] === points[points.length - 1][0] &&
+                  endPoint[1] === points[points.length - 1][1]
+                ) {
+                  p1 = paths[pathsLength - 1][pathLength - 2];
+                  p2 = paths[pathsLength - 1][pathLength - 1];
+                }
+              }
+            }
+            // 获取箭头的paths
+            if (paths.length > 0) {
+              if (p1 && p2) {
+                let arrowPaths = getArrowPaths(p1, p2);
+                paths = paths.concat(arrowPaths);
+              }
               let line = new Polyline({
                 paths: paths,
-                spatialReference: p1.spatialReference,
+                spatialReference: view.spatialReference,
               });
               let lineGraphic = new Graphic({
                 geometry: line,
@@ -235,7 +357,7 @@
           let paths = points.map((point) => [point.x, point.y]);
           let line = new Polyline({
             paths: [paths],
-            spatialReference: points[0] ? points[0].spatialReference : null,
+            spatialReference: view.spatialReference,
           });
           return line;
         }
@@ -273,6 +395,8 @@
                 [startX, startY],
                 [endX, endY],
               ]);
+            } else if (i === segmentLength) {
+              paths[paths.length - 1].push([p2[0], p2[1]]);
             }
           }
           return paths;
@@ -284,27 +408,28 @@
           let distance = 20 * resolution; // 箭头长度
           // 最后一段线段长度
           let length = Math.sqrt(
-            Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
+            Math.pow(p2[0] - p1[0], 2) + Math.pow(p2[1] - p1[1], 2)
           );
           let ratio = distance / length; // 比例
-          let deltaX = (p2.x - p1.x) * ratio;
-          let deltaY = (p2.y - p1.y) * ratio;
-          let p0 = new Point({
-            x: p2.x - deltaX,
-            y: p2.y - deltaY,
-            spatialReference: p1.spatialReference,
-          });
+          let deltaX = (p2[0] - p1[0]) * ratio;
+          let deltaY = (p2[1] - p1[1]) * ratio;
+          let p0 = [p2[0] - deltaX, p2[1] - deltaY];
           let line = new Polyline({
             paths: [
               [
-                [p0.x, p0.y],
-                [p2.x, p2.y],
+                [p0[0], p0[1]],
+                [p2[0], p2[1]],
               ],
             ],
-            spatialReference: p1.spatialReference,
+            spatialReference: view.spatialReference,
           });
-          let line1 = geometryEngine.rotate(line, 30, p2);
-          let line2 = geometryEngine.rotate(line, -30, p2);
+          let point2 = new Point({
+            x: p2[0],
+            y: p2[1],
+            spatialReference: view.spatialReference,
+          });
+          let line1 = geometryEngine.rotate(line, 30, point2);
+          let line2 = geometryEngine.rotate(line, -30, point2);
           let paths = [];
           paths.push(...line.paths);
           paths.push(...line1.paths);
@@ -312,9 +437,92 @@
           return paths;
         }
       });
+
+      function getBezierPoints(num, p1, p2, p3, p4) {
+        const points = [];
+        for (let i = 0; i < num; i++) {
+          points.push(threeBezier(i / num, p1, p2, p3, p4));
+        }
+        points.push([...p4]);
+        return points;
+      }
+
+      /**
+       * @desc 三阶贝塞尔
+       * @param {number} t 当前百分比
+       * @param {Array} p1 起点坐标
+       * @param {Array} cp1 控制点1
+       * @param {Array} cp2 控制点2
+       * @param {Array} p2 终点坐标
+       * @return 返回点坐标
+       */
+      function threeBezier(t, p1, cp1, cp2, p2) {
+        const [x1, y1] = p1;
+        const [x2, y2] = p2;
+        const [cx1, cy1] = cp1;
+        const [cx2, cy2] = cp2;
+        let x =
+          x1 * (1 - t) * (1 - t) * (1 - t) +
+          3 * cx1 * t * (1 - t) * (1 - t) +
+          3 * cx2 * t * t * (1 - t) +
+          x2 * t * t * t;
+        let y =
+          y1 * (1 - t) * (1 - t) * (1 - t) +
+          3 * cy1 * t * (1 - t) * (1 - t) +
+          3 * cy2 * t * t * (1 - t) +
+          y2 * t * t * t;
+        return [x, y];
+      }
+
+      function getDis(dis1, dis2) {
+        let v =
+          (dis1[0] - dis2[0]) * (dis1[0] - dis2[0]) +
+          (dis1[1] - dis2[1]) * (dis1[1] - dis2[1]);
+        return Math.sqrt(v);
+      }
+
+      // 计算贝塞尔曲线的控制点
+      function getBezierControlPoints(pointList, smoothValue = 1) {
+        let ctrlList = [pointList[0]];
+        for (let i = 0; i < pointList.length; i++) {
+          if (i === 0 || i === pointList.length - 1) {
+            continue;
+          }
+          let [a_x, a_y] = pointList[i - 1]; // 第1个顶点
+          let [b_x, b_y] = pointList[i]; // 第2个顶点
+          let [c_x, c_y] = pointList[i + 1]; // 第3个顶点
+          let ab_x = (a_x + b_x) / 2.0;
+          let ab_y = (a_y + b_y) / 2.0;
+          let bc_x = (c_x + b_x) / 2.0;
+          let bc_y = (c_y + b_y) / 2.0;
+          let len1 = getDis(pointList[i - 1], pointList[i]);
+          let len2 = getDis(pointList[i + 1], pointList[i]);
+          let k1 = len1 / (len1 + len2);
+          let d_x = ab_x + (bc_x - ab_x) * k1;
+          let d_y = ab_y + (bc_y - ab_y) * k1;
+          let ctrl0_x = b_x + (ab_x - d_x) * smoothValue;
+          let ctrl0_y = b_y + (ab_y - d_y) * smoothValue;
+          let ctrl1_x = b_x + (bc_x - d_x) * smoothValue;
+          let ctrl1_y = b_y + (bc_y - d_y) * smoothValue;
+          ctrlList.push([ctrl0_x, ctrl0_y]);
+          ctrlList.push([ctrl1_x, ctrl1_y]);
+        }
+        ctrlList.push(pointList[pointList.length - 1]);
+        return ctrlList;
+      }
     </script>
   </head>
   <body>
     <div id="viewDiv"></div>
+    <form id="form" style="position: absolute; top: 50px; right: 50px">
+      <label>
+        <input type="radio" value="straight" name="lineStyle" checked />
+        <span>直线</span>
+      </label>
+      <label>
+        <input type="radio" value="curve" name="lineStyle" />
+        <span>曲线</span>
+      </label>
+    </form>
   </body>
 </html>
