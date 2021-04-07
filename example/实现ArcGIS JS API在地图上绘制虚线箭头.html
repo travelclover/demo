@@ -80,7 +80,6 @@
             tilt: 0,
           },
         });
-        console.log(view);
         let clickHandler; // 点击事件
         let doubleClickHandler; // 双击事件
         let pointerMoveHandler; // 鼠标移动事件
@@ -120,7 +119,6 @@
           removeClickHandler(); // 清除点击事件
           view.container.style.cursor = 'crosshair';
           clickHandler = view.on('click', (event) => {
-            console.log(event);
             pathPoints.push(event.mapPoint);
             updateGraphics(pathPoints); // 更新图形
           });
@@ -196,12 +194,13 @@
           }
           tempLayer.addMany(pointGraphics);
 
+          let points = pathPoints.map((item) => [item.x, item.y]);
           let paths = [];
           // 判断线类型
           let graphicStyle = document.getElementById('form').graphicStyle.value;
           if (graphicStyle === 'straight') {
             // 直线
-            let fullLine = createLineByPoints(pathPoints);
+            let fullLine = createLineByPoints(points);
             let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
             if (cliped && cliped.paths.length && cliped.paths[0].length) {
               for (let i = 0; i < cliped.paths.length; i++) {
@@ -219,12 +218,10 @@
             addPolylineToTempLayer(paths);
           } else if (graphicStyle === 'curve') {
             // 曲线
-            let points = pathPoints.map((item) => [item.x, item.y]);
             paths = getCurvePaths(points);
             addPolylineToTempLayer(paths);
           } else if (graphicStyle === 'curve_plane') {
             // 曲线面虚线
-            let points = pathPoints.map((item) => [item.x, item.y]);
             let rings = getCurvePlaneRings(points);
             addPolygonToTempLayer(rings);
           }
@@ -340,8 +337,7 @@
           let arrowLen = width * resolution; // 箭头长度
           let pointsLen = points.length;
           let p_arrow = points[pointsLen - 1]; // 箭头点坐标
-          // 判断是否完成
-          // 完成状态需要绘制箭头
+
           if (points.length >= 2) {
             // 最后的点
             let p1 = new Point({
@@ -363,7 +359,7 @@
               let p_y = p1.y - (p1.y - p2.y) * ratio;
               points[pointsLen - 1] = [p_x, p_y];
             } else {
-              points.shift();
+              points.pop();
               // points长度为1时，只能画个三角形
               if (points.length === 1) {
                 let pT_x =
@@ -437,13 +433,13 @@
               if (i % 2 === 0) {
                 let ring = [];
                 if (i === segmentNum - 1) {
-                  ring = [].concat(
+                  ring = Array.prototype.concat(
                     line1Paths[i],
                     arrowRings[0],
                     line2Paths[i].reverse()
                   );
                 } else {
-                  ring = [].concat(line1Paths[i], line2Paths[i].reverse());
+                  ring = Array.prototype.concat(line1Paths[i], line2Paths[i].reverse());
                 }
                 ring.push(line1Paths[i][0]);
                 ring.reverse();
@@ -526,7 +522,6 @@
         function getCurvePlaneGraphic(pathPoints) {
           let points = pathPoints.map((item) => [item.x, item.y]);
           let rings = getCurvePlaneRings(points);
-          console.log(rings);
           let polygon = new Polygon({
             rings: rings,
             spatialReference: view.spatialReference,
@@ -539,7 +534,6 @@
             },
           });
           lineLayer.add(graphic);
-          console.log(graphic);
         }
 
         // 获取贝塞尔曲线geometry
@@ -579,7 +573,9 @@
             let p1; // 用来计算箭头方向的点
             let p2; // 用来计算箭头方向的点
             if (item.graphicStyle === 'straight') {
-              let fullLine = createLineByPoints(item.points);
+              let fullLine = createLineByPoints(
+                item.points.map((p) => [p.x, p.y])
+              );
               let cliped = geometryEngine.clip(fullLine, view.extent); // 裁剪后的
               if (cliped && cliped.paths.length && cliped.paths[0].length) {
                 for (let i = 0; i < cliped.paths.length; i++) {
@@ -639,9 +635,8 @@
 
         // 通过点列表生成线
         function createLineByPoints(points) {
-          let paths = points.map((point) => [point.x, point.y]);
           let line = new Polyline({
-            paths: [paths],
+            paths: [points],
             spatialReference: view.spatialReference,
           });
           return line;
@@ -724,18 +719,11 @@
 
         // 获取箭头rings
         function getArrowRings(p1, p2, p3, p4) {
-          let resolution = view.resolution;
-          let arrowLen = 16 * resolution; // 箭头长度
           let pL_x = p3[0] - p2[0] + p3[0];
           let pL_y = p3[1] - p2[1] + p3[1];
           let pR_x = p4[0] - p2[0] + p4[0];
           let pR_y = p4[1] - p2[1] + p4[1];
 
-          let point1 = new Point({
-            x: p1[0],
-            y: p1[1],
-            spatialReference: view.spatialReference,
-          });
           let point2 = new Point({
             x: p2[0],
             y: p2[1],
