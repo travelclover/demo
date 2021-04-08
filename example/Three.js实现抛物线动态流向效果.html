@@ -58,7 +58,7 @@
       const geometry = new THREE.Geometry();
       geometry.vertices = points;
       // 设置顶点 colors 数组，与顶点数量和顺序保持一致。
-      geometry.colors = new Array(points.length + 1).fill(
+      geometry.colors = new Array(points.length).fill(
         new THREE.Color('#333300')
       );
       // 生成材质
