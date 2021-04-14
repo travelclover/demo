@@ -212,26 +212,20 @@
            * @param {number} longitude 经度
            * @param {number} latitude 纬度
            * @param {number} height 高度
+           * @return {array} 返回渲染坐标系中的点坐标[x, y, z]
            */
           pointTransform(longitude, latitude, height) {
-            let transform = new THREE.Matrix4(); // 变换矩阵
             let transformation = new Array(16);
             // 将经纬度坐标转换为xy值
             let pointXY = webMercatorUtils.lngLatToXY(longitude, latitude);
             // 先转换高度为0的点
-            transform.fromArray(
-              externalRenderers.renderCoordinateTransformAt(
-                this.view,
-                [pointXY[0], pointXY[1], height], // 坐标在地面上的点[x值, y值, 高度值]
-                this.view.spatialReference,
-                transformation
-              )
+            externalRenderers.renderCoordinateTransformAt(
+              this.view,
+              [pointXY[0], pointXY[1], height], // 坐标在地面上的点[x值, y值, 高度值]
+              this.view.spatialReference,
+              transformation
             );
-            return [
-              transform.elements[12],
-              transform.elements[13],
-              transform.elements[14],
-            ];
+            return [transformation[12], transformation[13], transformation[14]];
           }
         }
 
