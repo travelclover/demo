@@ -1,0 +1,275 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>ArcGIS JS API+Three.js实现下雪特效</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.16/esri/css/main.css"
+    />
+    <script src="https://js.arcgis.com/4.16/"></script>
+
+    <script type="module">
+      import * as THREE from '../../libs/threejs/three.module.r119.js';
+
+      require([
+        'esri/Map',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+        'esri/geometry/Polyline',
+        'esri/views/3d/externalRenderers',
+        'esri/geometry/support/webMercatorUtils',
+      ], function (
+        Map,
+        Basemap,
+        SceneView,
+        TileLayer,
+        Polyline,
+        externalRenderers,
+        webMercatorUtils
+      ) {
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url:
+                'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          basemap: basemap,
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [
+              106.81728807741148,
+              17.973344421207273,
+              3726356.6413883436,
+            ],
+            tilt: 21.902354973840445,
+          },
+        });
+        window.view = view;
+
+        class MyRenderer {
+          view = null;
+          renderer = null; // three.js 渲染器
+          camera = null; // three.js 相机
+          scene = null; // three.js 中的场景
+
+          constructor(options) {
+            this.view = options.view;
+          }
+
+          setup(context) {
+            this.renderer = new THREE.WebGLRenderer({
+              context: context.gl, // 可用于将渲染器附加到已有的渲染环境(RenderingContext)中
+              premultipliedAlpha: false, // renderer是否假设颜色有 premultiplied alpha. 默认为true
+            });
+            this.renderer.setPixelRatio(window.devicePixelRatio); // 设置设备像素比。通常用于避免HiDPI设备上绘图模糊
+            this.renderer.setViewport(0, 0, view.width, view.height); // 视口大小设置
+
+            // 防止Three.js清除ArcGIS JS API提供的缓冲区。
+            this.renderer.autoClearDepth = false; // 定义renderer是否清除深度缓存
+            this.renderer.autoClearStencil = false; // 定义renderer是否清除模板缓存
+            this.renderer.autoClearColor = false; // 定义renderer是否清除颜色缓存
+
+            // ArcGIS JS API渲染自定义离屏缓冲区，而不是默认的帧缓冲区。
+            // 我们必须将这段代码注入到three.js运行时中，以便绑定这些缓冲区而不是默认的缓冲区。
+            const originalSetRenderTarget = this.renderer.setRenderTarget.bind(
+              this.renderer
+            );
+            this.renderer.setRenderTarget = function (target) {
+              originalSetRenderTarget(target);
+              if (target == null) {
+                // 绑定外部渲染器应该渲染到的颜色和深度缓冲区
+                context.bindRenderTarget();
+              }
+            };
+
+            this.scene = new THREE.Scene(); // 场景
+            this.camera = new THREE.PerspectiveCamera(); // 相机
+
+            // 添加坐标轴辅助工具
+            const axesHelper = new THREE.AxesHelper(10000000);
+            this.scene.add(axesHelper);
+
+            // 更新view的resolution
+            this.scene.userData.viewResolution = this.view.resolution;
+
+            const textureLoader = new THREE.TextureLoader();
+            const sprite1 = textureLoader.load(
+              '../../images/ArcGIS JS API+Three.js实现下雪特效/snowflake1.png'
+            );
+            const sprite2 = textureLoader.load(
+              '../../images/ArcGIS JS API+Three.js实现下雪特效/snowflake2.png'
+            );
+            const sprite3 = textureLoader.load(
+              '../../images/ArcGIS JS API+Three.js实现下雪特效/snowflake3.png'
+            );
+            const sprite4 = textureLoader.load(
+              '../../images/ArcGIS JS API+Three.js实现下雪特效/snowflake4.png'
+            );
+            const sprite5 = textureLoader.load(
+              '../../images/ArcGIS JS API+Three.js实现下雪特效/snowflake5.png'
+            );
+
+            const group = new THREE.Group();
+            // 创建一个缓冲区几何体
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            for (let i = 0; i < 10000; i++) {
+              const x = Math.random() * 1000 - 500;
+              const y = Math.random() * 1000 - 500;
+              const z = Math.random() * 1000 - 500;
+              vertices.push(x, y, z);
+            }
+            geometry.setAttribute(
+              'position',
+              new THREE.Float32BufferAttribute(vertices, 3)
+            );
+            geometry.computeBoundingBox();
+            geometry.center();
+
+            let materials = [];
+            const parameters = [
+              [[1.0, 0.2, 0.5], sprite2, 20 * 2],
+              [[0.95, 0.1, 0.5], sprite3, 15 * 2],
+              [[0.9, 0.05, 0.5], sprite1, 10 * 2],
+              [[0.85, 0, 0.5], sprite5, 8 * 2],
+              [[0.8, 0, 0.5], sprite4, 5 * 2],
+            ];
+
+            for (let i = 0; i < parameters.length; i++) {
+              const color = parameters[i][0];
+              const sprite = parameters[i][1];
+              const size = parameters[i][2];
+
+              materials[i] = new THREE.PointsMaterial({
+                size: size,
+                map: sprite,
+                blending: THREE.AdditiveBlending, // 融合方式
+                depthTest: false, // 是否在渲染此材质时启用深度测试
+                transparent: true, // 定义此材质是否透明
+                opacity: 1,
+              });
+              materials[i].color.setHSL(color[0], color[1], color[2]);
+
+              const particles = new THREE.Points(geometry, materials[i]);
+
+              particles.rotation.x = Math.random() * 6;
+              particles.rotation.y = Math.random() * 6;
+              particles.rotation.z = Math.random() * 6;
+
+              group.add(particles);
+            }
+
+            let point = this.pointTransform(104.06, 30.67, 500);
+            group.position.set(...point);
+            // 计算调整姿态的角度
+            let deltaX = Math.atan(point[2] / point[1]);
+            let deltaZ = Math.atan(
+              point[0] / Math.sqrt(point[1] * point[1] + point[2] * point[2])
+            );
+            // 如果 y < 0 需要加上180°
+            if (point[1] < 0) {
+              deltaX += Math.PI;
+            } else {
+              deltaZ *= -1;
+            }
+            // 调整圆圈姿态
+            group.rotation.x = deltaX;
+            group.rotation.z = deltaZ;
+            // group.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2); // 再沿X轴旋转90°
+            this.scene.add(group);
+            this.group = group;
+            console.log(group);
+
+            context.resetWebGLState();
+          }
+
+          render(context) {
+            // 更新相机参数
+            const cam = context.camera;
+            this.camera.position.set(cam.eye[0], cam.eye[1], cam.eye[2]);
+            this.camera.up.set(cam.up[0], cam.up[1], cam.up[2]);
+            this.camera.lookAt(
+              new THREE.Vector3(cam.center[0], cam.center[1], cam.center[2])
+            );
+            // 投影矩阵可以直接复制
+            this.camera.projectionMatrix.fromArray(cam.projectionMatrix);
+            // 更新view的resolution
+            this.scene.userData.viewResolution = this.view.resolution;
+
+            let geometry = this.group.children[0].geometry;
+            for (let i = 0; i < geometry.attributes.position.count; i++) {
+              let index = i * 3 + 1;
+              geometry.attributes.position.array[index] =
+                geometry.attributes.position.array[index] - 0.1;
+              if (geometry.attributes.position.array[index] < -500) {
+                geometry.attributes.position.array[index] = 500;
+              }
+            }
+            geometry.attributes.position.needsUpdate = true;
+
+            // 绘制场景
+            this.renderer.state.reset();
+            this.renderer.render(this.scene, this.camera);
+            // 请求重绘视图。
+            externalRenderers.requestRender(view);
+            // cleanup
+            context.resetWebGLState();
+          }
+
+          /**
+           * 经纬度坐标点转换为渲染坐标系中的点坐标
+           * @param {number} longitude 经度
+           * @param {number} latitude 纬度
+           * @param {number} height 高度
+           * @return {array} 返回渲染坐标系中的点坐标[x, y, z]
+           */
+          pointTransform(longitude, latitude, height) {
+            let transformation = new Array(16);
+            // 将经纬度坐标转换为xy值
+            let pointXY = webMercatorUtils.lngLatToXY(longitude, latitude);
+            // 先转换高度为0的点
+            externalRenderers.renderCoordinateTransformAt(
+              this.view,
+              [pointXY[0], pointXY[1], height], // 坐标在地面上的点[x值, y值, 高度值]
+              this.view.spatialReference,
+              transformation
+            );
+            return [transformation[12], transformation[13], transformation[14]];
+          }
+        }
+
+        let myRenderer = new MyRenderer({ view: view });
+
+        // 注册renderer
+        externalRenderers.add(view, myRenderer);
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
