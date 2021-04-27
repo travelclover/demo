@@ -64,34 +64,40 @@
         });
 
         view.when(() => {
-          const driver = new Driver();
+          const driver = new Driver({
+            doneBtnText: '完成',
+          });
+          const commonPopover = {
+            position: 'right',
+            closeBtnText: '关闭',
+            nextBtnText: '下一步',
+            prevBtnText: '上一步',
+          };
+
           driver.defineSteps([
             {
               element: '.esri-zoom',
-              popover: {
+              popover: Object.assign({}, commonPopover, {
                 className: 'first-step-popover-class',
                 title: '缩放按钮',
                 description: '点击此处可进行地图的放大缩小操作',
-                position: 'right',
-              },
+              }),
             },
             {
               element: '.esri-navigation-toggle',
-              popover: {
+              popover: Object.assign({}, commonPopover, {
                 className: 'second-step-popover-class',
                 title: '地图操作切换按钮',
                 description: '切换以进行3D平移或旋转',
-                position: 'right',
-              },
+              }),
             },
             {
               element: '.esri-compass',
-              popover: {
+              popover: Object.assign({}, commonPopover, {
                 className: 'third-step-popover-class',
                 title: '重置罗盘仪方向按钮',
                 description: '点击可重置罗盘仪方向',
-                position: 'right',
-              },
+              }),
             },
           ]);
 
