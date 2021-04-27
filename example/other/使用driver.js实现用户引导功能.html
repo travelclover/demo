@@ -1,0 +1,109 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>使用driver.js实现用户引导功能</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.16/esri/css/main.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/driver.js/dist/driver.min.css"
+    />
+    <script src="https://unpkg.com/driver.js/dist/driver.min.js"></script>
+    <script src="https://js.arcgis.com/4.16/"></script>
+
+    <script type="module">
+      import * as THREE from '../../libs/threejs/three.module.r119.js';
+
+      require([
+        'esri/Map',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+      ], function (Map, Basemap, SceneView, TileLayer) {
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url:
+                'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          basemap: basemap,
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [
+              106.81728807741148,
+              17.973344421207273,
+              3726356.6413883436,
+            ],
+            tilt: 21.902354973840445,
+          },
+        });
+
+        view.when(() => {
+          const driver = new Driver();
+          driver.defineSteps([
+            {
+              element: '.esri-zoom',
+              popover: {
+                className: 'first-step-popover-class',
+                title: '缩放按钮',
+                description: '点击此处可进行地图的放大缩小操作',
+                position: 'right',
+              },
+            },
+            {
+              element: '.esri-navigation-toggle',
+              popover: {
+                className: 'second-step-popover-class',
+                title: '地图操作切换按钮',
+                description: '切换以进行3D平移或旋转',
+                position: 'right',
+              },
+            },
+            {
+              element: '.esri-compass',
+              popover: {
+                className: 'third-step-popover-class',
+                title: '重置罗盘仪方向按钮',
+                description: '点击可重置罗盘仪方向',
+                position: 'right',
+              },
+            },
+          ]);
+
+          let needDriver = window.confirm('开始用户引导？');
+          if (needDriver) {
+            driver.start();
+          }
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
