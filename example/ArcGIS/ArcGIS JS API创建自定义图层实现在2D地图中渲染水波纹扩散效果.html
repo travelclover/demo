@@ -1,0 +1,202 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>ArcGIS JS API创建自定义图层实现在2D地图中渲染水波纹扩散效果</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.19/esri/css/main.css"
+    />
+    <script src="https://js.arcgis.com/4.19/"></script>
+
+    <script type="module">
+      require([
+        'esri/Map',
+        'esri/Basemap',
+        'esri/Graphic',
+        'esri/layers/TileLayer',
+        'esri/views/MapView',
+        'esri/layers/GraphicsLayer',
+        'esri/layers/Layer',
+        'esri/views/2d/layers/BaseLayerView2D',
+      ], function (
+        Map,
+        Basemap,
+        Graphic,
+        TileLayer,
+        MapView,
+        GraphicsLayer,
+        Layer,
+        BaseLayerView2D
+      ) {
+        const CustomLayerView2D = BaseLayerView2D.createSubclass({
+          attach() {
+            let points = this.layer.graphics.map((item) => {
+              let geometry = item.geometry;
+              let random = Math.random(); // 随机数
+              return {
+                x: geometry.x,
+                y: geometry.y,
+                scale: random,
+                opacity: 1 - random,
+              };
+            });
+            this.points = points;
+            this.timestamp = new Date().getTime(); // 时间戳
+            this.duration = this.layer.duration; // 动画持续时间
+          },
+          render(renderParameters) {
+            var { state, context } = renderParameters;
+            var pixelRatio = state.pixelRatio;
+            var {
+              size: [width, height],
+            } = state;
+
+            // apply rotation for everything that will be applied to the canvas
+            if (state.rotation !== 0) {
+              context.translate(
+                width * pixelRatio * 0.5,
+                height * pixelRatio * 0.5
+              );
+              context.rotate((state.rotation * Math.PI) / 180);
+              context.translate(
+                -width * pixelRatio * 0.5,
+                -height * pixelRatio * 0.5
+              );
+            }
+
+            let radius = this.layer.radius; // 圆半径
+            for (let i = 0; i < this.points.length; i++) {
+              let point = this.points[i];
+              let out = [];
+              let r = radius * point.scale; // 圆半径
+              state.toScreenNoRotation(out, point.x, point.y); // 转换成屏幕坐标
+              context.beginPath();
+              context.fillStyle = 'rgba(255, 0, 0, ' + point.opacity + ')';
+              context.arc(out[0], out[1], r, 0, 2 * Math.PI);
+              context.fill();
+              context.closePath();
+            }
+
+            // 更新状态
+            this.updateStatus();
+          },
+          // 更新状态
+          updateStatus() {
+            let now = new Date().getTime();
+            let duration = this.duration;
+            let timestamp = this.timestamp;
+            this.points = this.points.map((item) => {
+              let scale = item.scale + (now - timestamp) / duration;
+              item.scale = scale - Math.floor(scale);
+              item.opacity = 1 - item.scale;
+              return item;
+            });
+            this.timestamp = now;
+            // 渲染
+            this.requestRender();
+          },
+        });
+
+        const CustomLayer = Layer.createSubclass({
+          createLayerView(view) {
+            if (view.type === '2d') {
+              return new CustomLayerView2D({
+                view: view,
+                layer: this,
+              });
+            }
+          },
+        });
+
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url: 'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+
+        const view = new MapView({
+          container: 'viewDiv',
+          map: new Map({
+            basemap: basemap,
+            layers: [],
+          }),
+        });
+        view.goTo(
+          {
+            center: [105.48524370782414, 34.864064603585476],
+            zoom: 4,
+          },
+          {
+            duration: 1000,
+          }
+        );
+        window.view = view;
+
+        let graphics = [
+          createGraphic(120, 30), //
+          createGraphic(110, 20),
+          createGraphic(100, 40),
+          createGraphic(120, 40),
+          createGraphic(120, 50),
+        ];
+
+        let customLayer = new CustomLayer({
+          graphics: graphics,
+          radius: 50, // 半径
+          duration: 1000, // 动画时间
+        });
+        view.map.add(customLayer);
+
+        let layer2 = new GraphicsLayer({
+          graphics: graphics,
+        });
+        view.map.add(layer2);
+
+        // 创建graphic
+        function createGraphic(x, y) {
+          return new Graphic({
+            geometry: {
+              type: 'point',
+              spatialReference: {
+                wkid: 3857,
+              },
+              longitude: x,
+              latitude: y,
+            },
+            symbol: {
+              type: 'simple-marker', // autocasts as new SimpleMarkerSymbol()
+              style: 'square',
+              color: 'blue',
+              size: '8px', // pixels
+              outline: {
+                color: [255, 255, 0],
+                width: 2, // points
+              },
+            },
+          });
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
