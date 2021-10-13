@@ -36,7 +36,7 @@
           this.ctx = canvas.getContext('2d'); // 获取在画布上绘图的环境
 
           // 生成粒子数组
-          this.particles = new Array(300).fill(
+          this.particles = new Array(3000).fill(
             new Particle(
               Math.floor(Math.random() * this.canvasWidth),
               Math.floor(Math.random() * this.canvasHeight)
@@ -52,8 +52,10 @@
 
         // 绘制方法
         draw() {
-          this.ctx.lineWidth = 3; // 设置线宽
+          this.ctx.lineWidth = 2; // 设置线宽
+          console.log(this.ctx.globalCompositeOperation);
           this.ctx.globalCompositeOperation = 'destination-in'; // 设置模式为：目标图形和源图形重叠的部分会被保留（源图形），其余显示为透明
+          console.log(this.ctx.globalCompositeOperation);
           this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight); // 绘制矩形
           this.ctx.globalCompositeOperation = 'lighter'; // 设置模式为: 源图像 + 目标图像。重叠部分的颜色会重新计算
           this.ctx.globalAlpha = 0.8; // 设置画布上绘制图形的不透明度
