@@ -1,0 +1,155 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现地图场景视频融合</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.23/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.23/"></script>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/geometry/Mesh',
+        'esri/geometry/support/MeshComponent',
+        'esri/Graphic',
+      ], (Map, SceneView, Mesh, MeshComponent, Graphic) => {
+        // 创建地图
+        const map = new Map({
+          basemap: 'topo-vector',
+          ground: 'world-elevation',
+        });
+        // 创建视图场景
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+        });
+        // 地图场景点击事件
+        view.on('click', (e) => {
+          console.log(e);
+        });
+        // 创建video
+        const video = document.createElement('video'); // 创建video标签
+        video.src = './video.mp4'; // 视频地址
+        video.autoplay = true; // 自动播放
+        video.muted = true; // 设置静音，设置静音后才能自动播放
+        video.loop = true; // 循环播放
+        document.body.appendChild(video); // 添加到文档中
+        video.style.position = 'absolute'; // 设置绝对定位
+        video.style.top = 0; // 设置距离顶部0像素
+        video.style.height = 0; // 设置高度0像素
+        video.style.visibility = 'hidden'; // 设置元素隐藏
+
+        const height = 120;
+        const heightOffset = 1;
+        const point1 = [
+          11584169.159857891,
+          3588572.695132413,
+          496.27007252703896 + heightOffset,
+        ];
+        const point2 = [
+          11584396.703916386,
+          3588574.979544681,
+          495.8151520746715 + heightOffset,
+        ];
+        const point3 = [
+          11584394.889440097,
+          3588724.2562674284,
+          496.4738873814049 + heightOffset,
+        ];
+        const point4 = [
+          11584163.8079081,
+          3588718.3809192777,
+          496.2824081689934 + heightOffset,
+        ];
+        const point5 = [
+          11584163.8079081,
+          3588718.3809192777,
+          496.2824081689934 + heightOffset + height,
+        ];
+        const point6 = [
+          11584394.889440097,
+          3588724.2562674284,
+          496.4738873814049 + heightOffset + height,
+        ];
+
+        // 创建网格组件
+        const meshComponent = new MeshComponent({
+          faces: [0, 1, 2, 0, 2, 3],
+          material: {
+            colorTexture: {
+              data: video,
+            },
+            doubleSided: true, // 是否显示两面
+          },
+        });
+
+        // 生成网格
+        const verticalMesh = new Mesh({
+          vertexAttributes: {
+            position: [...point4, ...point3, ...point6, ...point5],
+            uv: [0, 1, 1, 1, 1, 0, 0, 0],
+          },
+          components: [meshComponent],
+          spatialReference: { wkid: 3857 }, // Web Mercator的空间参考
+        });
+        // 生成graphic
+        let verticalGraphic = new Graphic({
+          geometry: verticalMesh,
+          symbol: {
+            type: 'mesh-3d',
+            symbolLayers: [{ type: 'fill' }],
+          },
+        });
+        view.graphics.add(verticalGraphic); // 将生成的graphic添加进视图中
+
+        // 水平屏幕
+        const horizontalMesh = new Mesh({
+          vertexAttributes: {
+            position: [...point1, ...point2, ...point3, ...point4],
+            uv: [0, 0, 1, 0, 1, 1, 0, 1], // 原点(0, 0)在左上角
+          },
+          components: [meshComponent],
+          spatialReference: { wkid: 3857 },
+        });
+        let horizontalGraphic = new Graphic({
+          geometry: horizontalMesh,
+          symbol: {
+            type: 'mesh-3d',
+            symbolLayers: [{ type: 'fill' }],
+          },
+        });
+        view.graphics.add(horizontalGraphic);
+
+        // 跳转到指定区域
+        view.when(() => {
+          view.goTo({
+            tilt: 25,
+            target: [verticalMesh, horizontalMesh],
+          });
+        });
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
