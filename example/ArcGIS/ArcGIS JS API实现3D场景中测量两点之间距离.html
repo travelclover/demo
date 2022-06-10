@@ -1,0 +1,106 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现3D场景中测量两点之间距离</title>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      .btn {
+        position: fixed;
+        top: 15px;
+        right: 15px;
+      }
+      .clearBtn {
+        display: none;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.23/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.23/"></script>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/Camera',
+        'esri/views/SceneView',
+        'esri/widgets/DirectLineMeasurement3D/DirectLineMeasurement3DViewModel',
+      ], (Map, Camera, SceneView, DirectLineMeasurement3DViewModel) => {
+        const map = new Map({
+          basemap: 'topo-vector',
+          ground: 'world-elevation',
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          scale: 1200,
+          center: [113.54169329934781, 23.135127515236988],
+        });
+        window.view = view;
+
+        view.when(() => {
+          const camera = new Camera({
+            fov: 55,
+            heading: 33.10478782891556,
+            tilt: 82.5537675850947,
+            position: {
+              latitude: 23.138985084070054,
+              longitude: 113.53061050947233,
+            },
+          });
+          view.goTo(camera);
+
+          const directLineMeasurement3D = new DirectLineMeasurement3DViewModel({
+            view: view,
+            unit: 'meters',
+          });
+
+          const startBtn = document.querySelector('.startBtn');
+          const clearBtn = document.querySelector('.clearBtn');
+
+          // 绑定开始测量事件
+          startBtn.addEventListener(
+            'click',
+            () => {
+              directLineMeasurement3D.start();
+              startBtn.style.display = 'none';
+              clearBtn.style.display = 'block';
+            },
+            false
+          );
+          // 绑定清除测量事件
+          clearBtn.addEventListener(
+            'click',
+            () => {
+              directLineMeasurement3D.clear();
+              startBtn.style.display = 'block';
+              clearBtn.style.display = 'none';
+            },
+            false
+          );
+        });
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+
+    <button class="btn startBtn">开始测量</button>
+    <button class="btn clearBtn">清除测量</button>
+  </body>
+</html>
