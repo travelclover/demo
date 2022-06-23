@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>使用IntersectionObserver API实现无限滚动功能</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+      }
+      .scroll {
+        width: 100vw;
+        height: 100vh;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      .scroll .item {
+        width: 100%;
+        height: 40px;
+        font-size: 20px;
+        border: 1px solid #ccc;
+        text-align: center;
+      }
+      .scrollFooter {
+        background-color: red;
+        height: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <ul class="scroll">
+      <li class="scrollFooter"></li>
+    </ul>
+  </body>
+
+  <script>
+    const scrollDOM = document.querySelector('.scroll');
+    const scrollFooter = document.querySelector('.scrollFooter');
+    /******************** 添加足够的内容使scrollDOM出现滚动条 ********************/
+    // 监听滚动列表结构变化
+    const mutationObserver = new MutationObserver((mutationList) => {
+      if (mutationList[0].type === 'childList') {
+        // 如果未出现滚动条则继续加载items
+        if (scrollDOM.scrollHeight - scrollDOM.clientHeight <= 10) {
+          loadItems(2);
+        }
+      }
+    });
+    const mutationObserverOptions = {
+      childList: true, // 监视目标节点（如果 subtree 为 true，则包含子孙节点）添加或删除新的子节点
+      subtree: false, // 是否监视整个节点树中的所有节点
+    };
+    mutationObserver.observe(scrollDOM, mutationObserverOptions);
+    /******************** 添加足够的内容使scrollDOM出现滚动条 ********************/
+
+    /******************** 当滚动到底部时加载更多内容 ********************/
+    // 观察scrollFooter元素是否可见
+    const intersectionObserver = new IntersectionObserver((entries) => {
+      // 如果scrollFooter元素出现在视口中，则继续加载内容
+      if (entries[0].isIntersecting) {
+        loadItems(10);
+      }
+    });
+    intersectionObserver.observe(scrollFooter);
+    /******************** 当滚动到底部时加载更多内容 ********************/
+
+    loadItems(5); // 默认加载5条数据
+
+    alert('传统的无限加载是通过监听scroll事件实现的，但是scroll事件会在很短的时间内触发很多次，严重影响页面性能。为提高页面性能，我们可以使用IntersectionObserver来实现无限加载。')
+
+    // 加载条目
+    function loadItems(length) {
+      const count = document.querySelectorAll('.scroll .item').length;
+      const fragment = document.createDocumentFragment();
+      for (let i = 0; i < length; i++) {
+        const li = document.createElement('li');
+        li.className = 'item';
+        li.innerHTML = `${count + i + 1}`;
+        fragment.appendChild(li);
+      }
+      scrollDOM.insertBefore(fragment, scrollFooter);
+    }
+  </script>
+</html>
