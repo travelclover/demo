@@ -1,0 +1,128 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现飞行漫游功能</title>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      .btns {
+        position: fixed;
+        top: 15px;
+        right: 15px;
+        display: flex;
+      }
+      .list {
+        position: absolute;
+        top: 100px;
+        right: 15px;
+        width: 200px;
+        max-height: 300px;
+        border: 1px solid red;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.23/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.23/"></script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+    <div class="btns">
+      <button class="btn addBtn">添加控制点</button>
+      <button class="btn startBtn">开始</button>
+      <button class="btn clearBtn">清除所有控制点</button>
+    </div>
+    <ul class="list">
+      <li>
+        <p>关键点1</p>
+        <div>
+          <span>时间</span>
+          <input type="text">
+        </div>
+      </li>
+    </ul>
+  </body>
+
+  <script>
+    require(['esri/Map', 'esri/Camera', 'esri/views/SceneView'], (
+      Map,
+      Camera,
+      SceneView
+    ) => {
+      const map = new Map({
+        basemap: 'topo-vector',
+        ground: 'world-elevation',
+      });
+
+      const view = new SceneView({
+        container: 'viewDiv',
+        map: map,
+        scale: 1200,
+        center: [113, 23],
+      });
+      window.view = view;
+
+      view.when(() => {
+        const camera = new Camera({
+          fov: 55,
+          heading: 33.10478782891556,
+          tilt: 82.5537675850947,
+          position: {
+            latitude: 23.138985084070054,
+            longitude: 113.53061050947233,
+          },
+        });
+        view.goTo(camera);
+
+        const addBtn = document.querySelector('.addBtn');
+        const startBtn = document.querySelector('.startBtn');
+        const clearBtn = document.querySelector('.clearBtn');
+        const list = document.querySelector('.list');
+        let cameraPoints = [];
+        const duration = 5; // 秒
+
+        addBtn.addEventListener(
+          'click',
+          () => {
+            let cameraPoint = view.camera.clone();
+            cameraPoints.push(cameraPoint);
+          },
+          false
+        );
+        startBtn.addEventListener('click', startFlying, false);
+        clearBtn.addEventListener(
+          'click',
+          () => {
+            cameraPoints = [];
+          },
+          false
+        );
+
+        async function startFlying() {
+          view.camera = cameraPoints[0];
+          for (let i = 1; i < cameraPoints.length; i++) {
+            await view.goTo(cameraPoints[i], {
+              duration: 5000,
+              maxDuration: 5000,
+              easing: 'linear',
+            });
+          }
+        }
+      });
+    });
+  </script>
+</html>
