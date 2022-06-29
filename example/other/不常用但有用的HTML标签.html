@@ -1,0 +1,136 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>不常用但有用的HTML标签</title>
+    <style>
+      .container {
+        width: 1200px;
+        margin: 0 auto;
+      }
+      .container details {
+        border: 1px solid #999;
+        padding: 6px 12px;
+      }
+      .container details summary {
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- bdo 元素 -->
+      <details>
+        <summary>一、&lt;bdo&gt;双向文本代替元素</summary>
+        <p><bdo dir="ltr">这是一个从左向右的文本！</bdo></p>
+        <p><bdo dir="rtl">这是一个从右向左的文本！</bdo></p>
+      </details>
+
+      <!-- bdi 元素 -->
+      <details>
+        <summary>二、&lt;bdi&gt;双向隔离元素</summary>
+        <p>
+          <bdo dir="rtl">
+            这是一个从右向左的文本！
+            <bdi>(括号内文本为从左向右)</bdi>
+          </bdo>
+        </p>
+      </details>
+
+      <!-- details 元素 -->
+      <details>
+        <summary>三、&lt;details&gt;详细信息展现元素</summary>
+        <p>示例1</p>
+        <details>
+          <summary>这是示例标题或摘要内容</summary>
+          这是示例的详情内容。默认不显示该内容，点击 summary 标签后显示该内容。
+        </details>
+
+        <p>示例2 不包含子元素<b>&lt;summary&gt;</b>的示例：</p>
+        <details>
+          <p>
+            这是不包含子元素&lt;summary&gt;示例的详情内容。<br />当&lt;details&gt;标签下不包含&lt;summary&gt;标签时会自动生成一个标题。
+          </p>
+        </details>
+
+        <p>示例3 toggle事件示例</p>
+        <details id="detailsExample">
+          <summary>&lt;details&gt;标签示例</summary>
+          <p>
+            这是&lt;details&gt;示例详情内容，点击打开或者关闭都会触发 toogle
+            事件。
+          </p>
+        </details>
+
+        <p>示例4 &lt;details&gt;标签嵌套使用示例</p>
+        <details>
+          <summary>这是一级</summary>
+          <details>
+            <summary>这是二级</summary>
+            <details>
+              <summary>这是三级</summary>
+              &lt;details&gt;标签可以嵌套使用，可以用来做树状结构组件。
+            </details>
+          </details>
+        </details>
+      </details>
+
+      <!-- map 元素 -->
+      <details>
+        <summary>四、&lt;map&gt;图像映射元素</summary>
+        <p>
+          &lt;map&gt;元素需要配合&lt;area&gt;和&lt;img&gt;元素一起使用，具体示例效果查看下一条。
+        </p>
+      </details>
+
+      <!-- area 元素 -->
+      <details>
+        <summary>五、&lt;area&gt;图像映射区域元素</summary>
+        <map name="infographic">
+          <area
+            shape="poly"
+            coords="130,147,200,107,254,219,130,228"
+            href="https://developer.mozilla.org/docs/Web/HTML"
+            target="_blank"
+            alt="HTML"
+          />
+          <area
+            shape="poly"
+            coords="130,147,130,228,6,219,59,107"
+            href="https://developer.mozilla.org/docs/Web/CSS"
+            target="_blank"
+            alt="CSS"
+          />
+          <area
+            shape="poly"
+            coords="130,147,200,107,130,4,59,107"
+            href="https://developer.mozilla.org/docs/Web/JavaScript"
+            target="_blank"
+            alt="JavaScript"
+          />
+        </map>
+        <img
+          usemap="#infographic"
+          src="https://travelclover.github.io/img/2022/06/map元素示例图片.png"
+          alt="MDN infographic"
+          style="width: 260px; height: 232px"
+        />
+      </details>
+    </div>
+  </body>
+
+  <script>
+    // details元素 toogle事件示例
+    const detailsDOM = document.querySelector('#detailsExample');
+    detailsDOM.addEventListener('toggle', () => {
+      if (detailsDOM.open) {
+        alert('<details>标签示例处于打开状态！');
+      } else {
+        alert('<details>标签示例关闭啦！');
+      }
+    });
+  </script>
+</html>
