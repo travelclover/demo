@@ -294,25 +294,65 @@
       <!-- progress 元素 -->
       <details>
         <summary>九、&lt;progress&gt;进度指示器元素</summary>
-        <label for="file">File progress:</label>
-        <progress id="file" max="100" value="70">70%</progress>
+        <p>示例1 显示百分比为70的进度条</p>
+        <progress max="100" value="70">70%</progress>
+        <br />
+        <br />
+
+        <p>示例2 作为一种loading的加载状态条使用</p>
+        <progress max="100"></progress>
       </details>
 
       <!-- datalist 元素 -->
       <details>
         <summary>十、&lt;datalist&gt;数据列表元素</summary>
-        <label for="ice-cream-choice">Choose a flavor:</label>
-        <input
-          list="ice-cream-flavors"
-          id="ice-cream-choice"
-          name="ice-cream-choice"
-        />
-        <datalist id="ice-cream-flavors">
-          <option value="Chocolate"></option>
-          <option value="Coconut"></option>
-          <option value="Mint"></option>
-          <option value="Strawberry"></option>
-          <option value="Vanilla"></option>
+        <p>示例1 与文本输入框配合使用</p>
+        <label for="hobby">输入您的爱好:</label>
+        <input list="hobbies" id="hobby" name="hobby" />
+        <datalist id="hobbies">
+          <option value="抽烟">抽烟</option>
+          <option value="喝酒">喝酒</option>
+          <option value="烫头">烫头</option>
+          <option value="工作">工作</option>
+          <option value="认真工作">认真工作</option>
+          <option value="拼命工作">拼命工作</option>
+        </datalist>
+        <br />
+        <br />
+
+        <p>示例2 与日期和时间控件配合使用</p>
+        <label for="time">输入时间:</label>
+        <input type="time" list="popularHours" id="time" />
+        <datalist id="popularHours">
+          <option value="12:00"></option>
+          <option value="13:00"></option>
+          <option value="14:00"></option>
+        </datalist>
+        <br />
+        <br />
+
+        <p>示例3 与范围选择控件配合使用</p>
+        <label for="range">请选择:</label>
+        <input type="range" list="tickmarks" id="range" />
+        <datalist id="tickmarks">
+          <option value="0">0</option>
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30">30</option>
+          <option value="80">80</option>
+        </datalist>
+        <br />
+        <br />
+
+        <p>示例4 与颜色选择控件配合使用</p>
+        <label for="color">请选择颜色:</label>
+        <input type="color" list="colors" id="color" />
+        <datalist id="colors">
+          <option value="#ff0000"></option>
+          <option value="#00ff00"></option>
+          <option value="#0000ff"></option>
+          <option value="#ffff00"></option>
+          <option value="#00ffff"></option>
         </datalist>
       </details>
     </div>
