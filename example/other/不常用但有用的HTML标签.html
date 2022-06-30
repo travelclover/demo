@@ -1,0 +1,384 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>不常用但有用的HTML标签</title>
+    <style>
+      .container {
+        width: 1200px;
+        margin: 0 auto;
+      }
+      .container details {
+        border: 1px solid #999;
+        padding: 6px 12px;
+      }
+      .container details summary {
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- bdo 元素 -->
+      <details>
+        <summary>一、&lt;bdo&gt;双向文本代替元素</summary>
+        <p><bdo dir="ltr">这是一个从左向右的文本！</bdo></p>
+        <p><bdo dir="rtl">这是一个从右向左的文本！</bdo></p>
+      </details>
+
+      <!-- bdi 元素 -->
+      <details>
+        <summary>二、&lt;bdi&gt;双向隔离元素</summary>
+        <p>
+          <bdo dir="rtl">
+            这是一个从右向左的文本！
+            <bdi>(括号内文本为从左向右)</bdi>
+          </bdo>
+        </p>
+      </details>
+
+      <!-- details 元素 -->
+      <details>
+        <summary>三、&lt;details&gt;详细信息展现元素</summary>
+        <p>示例1</p>
+        <details>
+          <summary>这是示例标题或摘要内容</summary>
+          这是示例的详情内容。默认不显示该内容，点击 summary 标签后显示该内容。
+        </details>
+
+        <p>示例2 不包含子元素<b>&lt;summary&gt;</b>的示例：</p>
+        <details>
+          <p>
+            这是不包含子元素&lt;summary&gt;示例的详情内容。<br />当&lt;details&gt;标签下不包含&lt;summary&gt;标签时会自动生成一个标题。
+          </p>
+        </details>
+
+        <p>示例3 toggle事件示例</p>
+        <details id="detailsExample">
+          <summary>&lt;details&gt;标签示例</summary>
+          <p>
+            这是&lt;details&gt;示例详情内容，点击打开或者关闭都会触发 toogle
+            事件。
+          </p>
+        </details>
+
+        <p>示例4 &lt;details&gt;标签嵌套使用示例</p>
+        <details>
+          <summary>这是一级</summary>
+          <details>
+            <summary>这是二级</summary>
+            <details>
+              <summary>这是三级</summary>
+              &lt;details&gt;标签可以嵌套使用，可以用来做树状结构组件。
+            </details>
+          </details>
+        </details>
+      </details>
+
+      <!-- map 元素 -->
+      <details>
+        <summary>四、&lt;map&gt;图像映射元素</summary>
+        <p>
+          &lt;map&gt;元素需要配合&lt;area&gt;和&lt;img&gt;元素一起使用，具体示例效果查看下一条。
+        </p>
+      </details>
+
+      <!-- area 元素 -->
+      <details>
+        <summary>五、&lt;area&gt;图像映射区域元素</summary>
+        <map name="infographic">
+          <area
+            shape="poly"
+            coords="130,147,200,107,254,219,130,228"
+            href="https://developer.mozilla.org/docs/Web/HTML"
+            target="_blank"
+            alt="HTML"
+          />
+          <area
+            shape="poly"
+            coords="130,147,130,228,6,219,59,107"
+            href="https://developer.mozilla.org/docs/Web/CSS"
+            target="_blank"
+            alt="CSS"
+          />
+          <area
+            shape="poly"
+            coords="130,147,200,107,130,4,59,107"
+            href="https://developer.mozilla.org/docs/Web/JavaScript"
+            target="_blank"
+            alt="JavaScript"
+          />
+        </map>
+        <img
+          usemap="#infographic"
+          src="https://travelclover.github.io/img/2022/06/map元素示例图片.png"
+          alt="MDN infographic"
+          style="width: 260px; height: 232px"
+        />
+      </details>
+
+      <!-- dialog 元素 -->
+      <details>
+        <summary>六、&lt;dialog&gt;对话框元素</summary>
+        <button onclick="openDialog()">打开对话框</button>
+        <button onclick="showModal()">打开模态框</button>
+        <dialog id="dialogExample">
+          <p>这是一个dialog元素</p>
+          <p>您吃了吗？</p>
+          <button
+            onclick="(function () {
+              const dialog = document.querySelector('#dialogExample');
+              dialog.close();
+            })()"
+          >
+            吃了
+          </button>
+        </dialog>
+      </details>
+
+      <!-- output 元素 -->
+      <details>
+        <summary>七、&lt;output&gt;输出元素</summary>
+        <p>示例1 两个数字相加</p>
+        <form
+          oninput="result.value=parseInt(number1.value)+parseInt(number2.value)"
+        >
+          <input type="number" id="number1" value="50" /> +
+          <input type="number" id="number2" value="10" /> =
+          <output name="result" for="number1 number2">60</output>
+        </form>
+        <br />
+
+        <p>示例2 &lt;output&gt;元素不在&lt;form&gt;表单下的情况</p>
+        <form
+          id="form"
+          oninput="result.value=parseInt(rangeNumber.value) * parseInt(number3.value)"
+        >
+          <input type="range" id="rangeNumber" value="50" />
+          * <input type="number" id="number3" value="10" /> =
+        </form>
+        <p>上面计算结果如下：</p>
+        <output form="form" name="result" for="rangeNumber number3">60</output>
+      </details>
+
+      <!-- meter 元素 -->
+      <details>
+        <summary>八、&lt;meter&gt;度量元素</summary>
+        <p>
+          将考试成绩划分为[0 - 60]、[60 - 90]和[90 - 100]三个区间，最优区间为[90
+          - 100]
+        </p>
+        <label for="scoreLow">成绩59分时：</label>
+        <meter
+          id="scoreLow"
+          min="0"
+          max="100"
+          low="60"
+          high="90"
+          optimum="100"
+          value="59"
+        >
+          at 59/100
+        </meter>
+        <label for="scoreMedium">成绩85分时：</label>
+        <meter
+          id="scoreMedium"
+          min="0"
+          max="100"
+          low="60"
+          high="90"
+          optimum="100"
+          value="85"
+        >
+          at 85/100
+        </meter>
+        <label for="scoreMedium">成绩90分时：</label>
+        <meter
+          id="scoreMedium"
+          min="0"
+          max="100"
+          low="60"
+          high="90"
+          optimum="100"
+          value="90"
+        >
+          at 90/100
+        </meter>
+
+        <p>
+          将环境温度划分为[0 - 24]、[24 - 28]和[28 -
+          45]三个区间，当人处在中间温度时感觉最舒适。
+        </p>
+        <label for="tempLow">温度20°时：</label>
+        <meter
+          id="tempLow"
+          min="0"
+          max="45"
+          low="24"
+          high="28"
+          optimum="26"
+          value="20"
+        >
+          20°
+        </meter>
+        <label for="tempMedium">温度26°时：</label>
+        <meter
+          id="tempMedium"
+          min="0"
+          max="45"
+          low="24"
+          high="28"
+          optimum="26"
+          value="26"
+        >
+          26°
+        </meter>
+        <label for="tempMedium">温度33°时：</label>
+        <meter
+          id="tempMedium"
+          min="0"
+          max="45"
+          low="24"
+          high="28"
+          optimum="26"
+          value="33"
+        >
+          33°
+        </meter>
+
+        <p>
+          将犯错误数量划分为[0 - 5]、[5 - 10]和[10 -
+          20]三个区间，当所犯错误数量少于5个时为最优，犯错数量在10到20个为最差。
+        </p>
+        <label for="errLow">错误数量为4时：</label>
+        <meter
+          id="errLow"
+          min="0"
+          max="20"
+          low="5"
+          high="10"
+          optimum="0"
+          value="4"
+        >
+          4
+        </meter>
+        <label for="errMedium">错误数量为7时：</label>
+        <meter
+          id="errMedium"
+          min="0"
+          max="20"
+          low="5"
+          high="10"
+          optimum="0"
+          value="7"
+        >
+          7
+        </meter>
+        <label for="errMedium">错误数量为20时：</label>
+        <meter
+          id="errMedium"
+          min="0"
+          max="20"
+          low="5"
+          high="10"
+          optimum="0"
+          value="20"
+        >
+          20
+        </meter>
+      </details>
+
+      <!-- progress 元素 -->
+      <details>
+        <summary>九、&lt;progress&gt;进度指示器元素</summary>
+        <p>示例1 显示百分比为70的进度条</p>
+        <progress max="100" value="70">70%</progress>
+        <br />
+        <br />
+
+        <p>示例2 作为一种loading的加载状态条使用</p>
+        <progress max="100"></progress>
+      </details>
+
+      <!-- datalist 元素 -->
+      <details>
+        <summary>十、&lt;datalist&gt;数据列表元素</summary>
+        <p>示例1 与文本输入框配合使用</p>
+        <label for="hobby">输入您的爱好:</label>
+        <input list="hobbies" id="hobby" name="hobby" />
+        <datalist id="hobbies">
+          <option value="抽烟">抽烟</option>
+          <option value="喝酒">喝酒</option>
+          <option value="烫头">烫头</option>
+          <option value="工作">工作</option>
+          <option value="认真工作">认真工作</option>
+          <option value="拼命工作">拼命工作</option>
+        </datalist>
+        <br />
+        <br />
+
+        <p>示例2 与日期和时间控件配合使用</p>
+        <label for="time">输入时间:</label>
+        <input type="time" list="popularHours" id="time" />
+        <datalist id="popularHours">
+          <option value="12:00"></option>
+          <option value="13:00"></option>
+          <option value="14:00"></option>
+        </datalist>
+        <br />
+        <br />
+
+        <p>示例3 与范围选择控件配合使用</p>
+        <label for="range">请选择:</label>
+        <input type="range" list="tickmarks" id="range" />
+        <datalist id="tickmarks">
+          <option value="0">0</option>
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30">30</option>
+          <option value="80">80</option>
+        </datalist>
+        <br />
+        <br />
+
+        <p>示例4 与颜色选择控件配合使用</p>
+        <label for="color">请选择颜色:</label>
+        <input type="color" list="colors" id="color" />
+        <datalist id="colors">
+          <option value="#ff0000"></option>
+          <option value="#00ff00"></option>
+          <option value="#0000ff"></option>
+          <option value="#ffff00"></option>
+          <option value="#00ffff"></option>
+        </datalist>
+      </details>
+    </div>
+  </body>
+
+  <script>
+    // details元素 toogle事件示例
+    const detailsDOM = document.querySelector('#detailsExample');
+    detailsDOM.addEventListener('toggle', () => {
+      if (detailsDOM.open) {
+        alert('<details>标签示例处于打开状态！');
+      } else {
+        alert('<details>标签示例关闭啦！');
+      }
+    });
+
+    // 打开对话框
+    function openDialog() {
+      const dialog = document.querySelector('#dialogExample');
+      dialog.show();
+    }
+
+    // 打开模态框
+    function showModal() {
+      const dialog = document.querySelector('#dialogExample');
+      dialog.showModal();
+    }
+  </script>
+</html>
