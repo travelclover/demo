@@ -1,0 +1,187 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现地图场景分屏对比功能</title>
+    <style>
+      html,
+      body,
+      #views {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      #views {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .view {
+        border: 1px solid #ccc;
+        box-sizing: border-box;
+        position: relative;
+      }
+      .view_2 {
+        width: 50vw;
+        height: 100vh;
+      }
+      .view_4 {
+        width: 50vw;
+        height: 50vh;
+      }
+      .checkboxWrap {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        background: #fff;
+        border: 1px solid #ccc;
+        padding: 6px 8px;
+      }
+      .btns {
+        position: fixed;
+        top: 40px;
+        right: 40px;
+        display: flex;
+      }
+      .btn {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        cursor: pointer;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        background: #fff;
+        position: relative;
+        box-sizing: border-box;
+      }
+      .btn:hover {
+        background: #e6e6e6;
+      }
+      .btn:first-of-type {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+      }
+      .btn:first-of-type::before {
+        content: '';
+        position: absolute;
+        display: block;
+        width: 13px;
+        height: 26px;
+        top: 6px;
+        left: 5px;
+        background: #333;
+        box-shadow: 15px 0px 0 0 #333;
+      }
+      .btn:last-of-type {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        border-left: 0;
+      }
+      .btn:last-of-type::before {
+        content: '';
+        position: absolute;
+        display: block;
+        width: 13px;
+        height: 13px;
+        top: 5px;
+        left: 5px;
+        background: #333;
+        box-shadow: 15px 0px 0 0 #333, 0px 15px 0 0 #333, 15px 15px 0 0 #333;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.23/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.23/"></script>
+
+    <script type="module">
+      import ViewLink from './ViewLink.js';
+      require(['esri/Map', 'esri/views/SceneView'], (Map, SceneView) => {
+        const container = document.querySelector('#views');
+        const btn1 = document.querySelector('#btn1');
+        const btn2 = document.querySelector('#btn2');
+        let views = [];
+        let viewLink;
+
+        // 创建地图
+        const map = new Map({
+          basemap: 'topo-vector',
+          ground: 'world-elevation',
+        });
+
+        btn1.addEventListener(
+          'click',
+          () => {
+            createViews(2);
+          },
+          false
+        );
+        btn2.addEventListener(
+          'click',
+          () => {
+            createViews(4);
+          },
+          false
+        );
+
+        createViews(2);
+
+        function createViews(viewsNumber) {
+          if (views.length === viewsNumber) return;
+          views = [];
+          container.innerHTML = '';
+          for (let i = 0; i < viewsNumber; i++) {
+            const div = document.createElement('div');
+            div.className = `view view_${viewsNumber}`;
+            container.appendChild(div);
+            views.push(
+              new SceneView({
+                container: div,
+                map: map,
+                ui: {
+                  components: [],
+                },
+              })
+            );
+            const checkbox = document.createElement('label');
+            checkbox.className = 'checkboxWrap';
+            checkbox.innerHTML = `<input class="checkbox" type="checkbox" data-view-index="${i}" checked> 联动`;
+            div.appendChild(checkbox);
+          }
+          updateCheckboxEvent();
+          viewLink = new ViewLink({ views });
+          viewLink.link();
+        }
+
+        function updateCheckboxEvent() {
+          const checkboxList = document.querySelectorAll('.checkbox');
+          checkboxList.forEach((checkbox) => {
+            checkbox.addEventListener('change', function () {
+              if (viewLink) {
+                const index = Number(this.dataset.viewIndex);
+                this.checked
+                  ? viewLink.link(index)
+                  : viewLink.cancelLink(index);
+                console.log(this.checked, index);
+              }
+            });
+          });
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="views"></div>
+
+    <div class="btns">
+      <div id="btn1" class="btn" title="双屏"></div>
+      <div id="btn2" class="btn" title="四屏"></div>
+    </div>
+  </body>
+</html>
