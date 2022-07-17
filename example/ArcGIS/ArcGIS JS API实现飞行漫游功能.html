@@ -1,0 +1,207 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现飞行漫游功能</title>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      .btns {
+        position: fixed;
+        top: 15px;
+        right: 15px;
+        display: flex;
+      }
+      .list {
+        list-style: none;
+        padding: 0;
+        position: absolute;
+        top: 100px;
+        right: 15px;
+        width: 270px;
+        max-height: 300px;
+        overflow-y: auto;
+        max-height: 400px;
+        background-color: #fff;
+        border: 1px solid #333;
+        border-width: 0;
+      }
+      .list li {
+        padding: 8px 16px;
+        border-bottom: 1px solid #ccc;
+        position: relative;
+      }
+      .list li p {
+        margin: 0;
+      }
+      .list li:hover .remove-btn {
+        display: block;
+      }
+      .list .remove-btn {
+        cursor: pointer;
+        display: none;
+        position: absolute;
+        top: 8px;
+        right: 16px;
+        font-size: 20px;
+      }
+      .list li:first-of-type .range-wrap {
+        display: none;
+      }
+      .list li:last-of-type {
+        border-bottom: 0;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.23/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.23/"></script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+    <div class="btns">
+      <button class="btn addBtn">添加控制点</button>
+      <button class="btn startBtn">开始</button>
+      <button class="btn clearBtn">清除所有控制点</button>
+    </div>
+    <ul class="list"></ul>
+  </body>
+
+  <script>
+    require(['esri/Map', 'esri/Camera', 'esri/views/SceneView'], (
+      Map,
+      Camera,
+      SceneView
+    ) => {
+      const map = new Map({
+        basemap: 'topo-vector',
+        ground: 'world-elevation',
+      });
+
+      const view = new SceneView({
+        container: 'viewDiv',
+        map: map,
+        scale: 1200,
+        center: [113, 23],
+      });
+      window.view = view;
+
+      view.when(() => {
+        const camera = new Camera({
+          fov: 55,
+          heading: 33.10478782891556,
+          tilt: 82.5537675850947,
+          position: {
+            latitude: 23.138985084070054,
+            longitude: 113.53061050947233,
+          },
+        });
+        view.goTo(camera);
+
+        const addBtn = document.querySelector('.addBtn');
+        const startBtn = document.querySelector('.startBtn');
+        const clearBtn = document.querySelector('.clearBtn');
+        const list = document.querySelector('.list');
+        let cameraPoints = [];
+
+        // 添加按钮
+        addBtn.addEventListener(
+          'click',
+          () => {
+            let cameraPoint = view.camera.clone();
+            cameraPoints.push(cameraPoint);
+            const li = document.createElement('li');
+            li.innerHTML = `
+              <p>关键点<span class="index">${cameraPoints.length}</span></p>
+              <div class="remove-btn">×</div>
+              <div class="range-wrap">
+                <span>时间</span>
+                <input type="range" min="1" max="30" step="1" value="3" />
+                <span class="time">3</span>
+                <span>秒</span>
+              </div>
+            `;
+            list.appendChild(li);
+            update();
+          },
+          false
+        );
+
+        // 开始按钮
+        startBtn.addEventListener('click', startFlying, false);
+
+        // 清除按钮
+        clearBtn.addEventListener(
+          'click',
+          () => {
+            cameraPoints = [];
+            list.innerHTML = '';
+            update();
+          },
+          false
+        );
+
+        async function startFlying() {
+          if (cameraPoints.length < 2) {
+            return;
+          }
+          view.camera = cameraPoints[0];
+          const liList = document.querySelectorAll('.list li');
+          for (let i = 1; i < cameraPoints.length; i++) {
+            const duration = Number(
+              liList[i].querySelector('input[type="range"').value
+            );
+            await view.goTo(cameraPoints[i], {
+              duration: duration * 1000,
+              maxDuration: duration * 1000,
+              easing: 'linear',
+            });
+          }
+        }
+
+        // range的change事件
+        function rangeOnChange() {
+          const duration = this.value;
+          this.parentNode.querySelector('.time').innerText = duration;
+        }
+
+        // 重新绑定相关事件
+        function update() {
+          const liList = document.querySelectorAll('.list li');
+          liList.forEach((li, index) => {
+            li.querySelector('.index').innerText = index + 1;
+            const range = li.querySelector('input[type="range"');
+            range.removeEventListener('change', rangeOnChange, false);
+            range.addEventListener('change', rangeOnChange, false);
+            const removeBtn = li.querySelector('.remove-btn');
+            removeBtn.removeEventListener('click', onRemove, false);
+            removeBtn.addEventListener('click', onRemove, false);
+          });
+          list.style.borderWidth = liList.length > 0 ? '1px' : '0';
+        }
+
+        // 删除事件
+        function onRemove() {
+          const li = this.parentNode;
+          const index = Number(li.querySelector('.index').innerText) - 1;
+          cameraPoints.splice(index, 1);
+          li.remove();
+          update();
+        }
+      });
+    });
+  </script>
+</html>
