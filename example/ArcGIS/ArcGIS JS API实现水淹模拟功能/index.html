@@ -1,0 +1,182 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现水淹模拟功能</title>
+    <link rel="stylesheet" href="./style.css" />
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.24/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.24/"></script>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/geometry/Mesh',
+        'esri/layers/GraphicsLayer',
+        'esri/Graphic',
+      ], (Map, SceneView, Mesh, GraphicsLayer, Graphic) => {
+        const startBtn = document.querySelector('#startBtn');
+
+        // 创建地图
+        const map = new Map({
+          basemap: 'topo-vector',
+          ground: 'world-elevation',
+        });
+        // 创建视图场景
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+        });
+        window.view = view;
+
+        // 创建layer
+        const layer = new GraphicsLayer({
+          elevationInfo: {
+            mode: 'absolute-height',
+            // mode: 'on-the-ground',
+          },
+        });
+        view.map.add(layer);
+
+        // 地图场景点击事件
+        view.on('click', (e) => {
+          console.log(e);
+        });
+
+        // 生成graphic
+        let graphic = new Graphic({
+          geometry: {
+            type: 'polygon',
+            rings: [
+              [
+                [103.36068616145837, 31.10348639821816, 1500],
+                [103.32161294109986, 31.037595800850536, 1500],
+                [103.2378326319481, 31.067370203812192, 1500],
+                [103.30103440333917, 31.136727926006987, 1500],
+                [103.36068616145837, 31.10348639821816, 1500],
+              ],
+            ],
+            spatialReference: view.spatialReference,
+          },
+          symbol: {
+            type: 'polygon-3d',
+            symbolLayers: [
+              {
+                type: 'water',
+                waveDirection: 180,
+                color: '#5975a3',
+                waveStrength: 'moderate',
+                waterbodySize: 'large',
+              },
+            ],
+          },
+        });
+        console.log(graphic);
+        layer.add(graphic); // 将生成的graphic添加进图层中
+
+        // 跳转到指定区域
+        view.when(() => {
+          view.goTo({
+            center: [103.31382061391655, 31.081913541291648],
+            scale: 9884.66759755399,
+            heading: 143.22696360608418,
+            tilt: 79.6409302909699,
+          });
+        });
+
+        let animationId = null;
+        const animationInfo = {
+          elevation: 1500, // 海拔高度
+          geometry: graphic.geometry,
+          depth: 150000, // 深度 毫米
+          duration: 30, // 时长：秒
+        };
+        startBtn.addEventListener('click', startAnimation, false);
+
+        // 开始动画
+        function startAnimation(depth, duration) {
+          if (animationInfo.startTime) {
+            // 结束动画
+            stopAnimation();
+          } else {
+            // 开始动画
+            animationInfo.startTime = new Date().getTime();
+            animationId = window.requestAnimationFrame(animation);
+          }
+
+          function animation() {
+            const now = new Date().getTime();
+            const { startTime, duration, depth, geometry, elevation } =
+              animationInfo;
+            if (!startTime) {
+              return;
+            }
+            const delta = now - startTime;
+            const newDepth = (delta / 1000 / duration) * depth;
+            if (geometry) {
+              updateWaterSurface(
+                geometry,
+                elevation,
+                newDepth > depth ? depth : newDepth
+              );
+            }
+            if (newDepth >= depth) {
+              stopAnimation();
+            }
+            if (startTime) {
+              animationId = window.requestAnimationFrame(animation);
+            }
+          }
+        }
+
+        function stopAnimation() {
+          animationInfo.startTime = 0;
+          window.cancelAnimationFrame(animationId);
+        }
+
+        function updateWaterSurface(geometry, elevation, depth) {
+          const symbol = {
+            type: 'polygon-3d',
+            symbolLayers: [
+              {
+                type: 'water',
+                waveDirection: 180,
+                color: '#5975a3',
+                waveStrength: 'moderate',
+                waterbodySize: 'large',
+              },
+            ],
+          };
+          const height = elevation + depth / 1000;
+          const rings = [
+            geometry.rings[0].map((item) => {
+              return [item[0], item[1], height];
+            }),
+          ];
+          geometry.hasZ = true;
+          geometry.rings = rings;
+          const graphic = new Graphic({
+            geometry: geometry,
+            symbol: symbol,
+          });
+          layer.removeAll();
+          layer.add(graphic);
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+    <div class="btns">
+      <button id="startBtn">开始动画</button>
+    </div>
+  </body>
+</html>
