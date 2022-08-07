@@ -1,0 +1,339 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现水淹模拟功能</title>
+    <link rel="stylesheet" href="./style.css" />
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.24/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.24/"></script>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/geometry/Mesh',
+        'esri/layers/GraphicsLayer',
+        'esri/Graphic',
+        'esri/widgets/Sketch/SketchViewModel',
+      ], (Map, SceneView, Mesh, GraphicsLayer, Graphic, SketchViewModel) => {
+        let map, // 地图
+          view, // 三维场景
+          layer, // 水面图层
+          sketchVM, // sketchViewModel实例
+          drawBtn, // 绘制按钮
+          elevationBtn, // 设置海拔高度按钮
+          startBtn, // 开始动画按钮
+          elevationInput, // 海拔高度输入框
+          depthInput, // 积水深度输入框
+          durationInput, // 动画时长输入框
+          elevation, // 海拔高度
+          depth, // 积水深度（毫米）
+          duration, // 动画时长（秒）
+          geometry, // 用于表示水面的几何图形
+          animationId, // 动画的id，用于取消动画
+          animationStartTime; // 动画开始时间
+
+        initMap(); // 初始化地图相关内容
+        initEvent(); // 初始化相关事件
+        setDefaultValue(); // 设置默认值
+
+        // 跳转到指定区域
+        view.when(() => {
+          view.goTo({
+            center: [103.31382061391655, 31.081913541291648],
+            scale: 9884.66759755399,
+            heading: 143.22696360608418,
+            tilt: 79.6409302909699,
+          });
+        });
+
+        // 初始化地图相关内容
+        function initMap() {
+          // 创建地图
+          map = new Map({
+            basemap: 'topo-vector',
+            ground: 'world-elevation',
+          });
+          // 创建视图场景
+          view = new SceneView({
+            container: 'viewDiv',
+            map: map,
+          });
+          window.view = view;
+
+          // 创建layer
+          layer = new GraphicsLayer({
+            elevationInfo: {
+              mode: 'absolute-height',
+            },
+          });
+          view.map.add(layer); // 将图层添加进地图中
+
+          // 创建sketchViewModel实例
+          sketchVM = new SketchViewModel({
+            view: view,
+            layer: new GraphicsLayer({}),
+            polygonSymbol: {
+              type: 'simple-fill',
+              color: [0, 255, 255, 0.7],
+              style: 'solid',
+              outline: {
+                color: [0, 255, 255, 1],
+                width: 2,
+              },
+            },
+          });
+          sketchVM.on('create', function (event) {
+            if (event.state === 'complete') {
+              geometry = event.graphic.geometry;
+            }
+          });
+
+          // 地图场景点击事件
+          view.on('click', (e) => {
+            console.log(e); // 在控制台中查看地图中所点击的点位坐标信息
+          });
+        }
+
+        // 初始化相关事件
+        function initEvent() {
+          // 绑定相关事件
+          drawBtn = document.querySelector('#drawBtn'); // 绘制按钮
+          elevationBtn = document.querySelector('#elevationBtn'); // 设置海拔高度按钮
+          startBtn = document.querySelector('#startBtn'); // 开始动画按钮
+          elevationInput = document.querySelector('#elevationInput'); // 海拔高度输入框
+          depthInput = document.querySelector('#depthInput'); // 积水深度输入框
+          durationInput = document.querySelector('#durationInput'); // 动画时长输入框
+
+          drawBtn.addEventListener('click', drawBtnOnClick, false); // 绑定绘制按钮事件
+          elevationBtn.addEventListener('click', elevationBtnOnClick, false); // 绑定设置海拔高度按钮事件
+          startBtn.addEventListener('click', startAnimation, false); // 绑定开始动画按钮事件
+          elevationInput.addEventListener('input', elevationOnInput, false); // 绑定海拔高度改变事件
+          depthInput.addEventListener('input', depthOnInput, false); // 绑定积水深度改变事件
+          durationInput.addEventListener('input', durationOnInput, false); // 绑定动画时长改变事件
+        }
+
+        // 绘制区域
+        function drawBtnOnClick() {
+          if (sketchVM) {
+            sketchVM.cancel();
+            sketchVM.create('polygon');
+          }
+        }
+
+        // 设置海拔高度按钮事件
+        function elevationBtnOnClick() {
+          if (view) {
+            view.container.style.cursor = 'crosshair'; // 设置鼠标样式
+            const clickHandle = view.on('click', (e) => {
+              view.hitTest(e).then((res) => {
+                if (res.ground.mapPoint) {
+                  const number = Number(
+                    (res.ground.mapPoint.z || 0).toFixed(2)
+                  );
+                  setElevation(number);
+                  clickHandle.remove(); // 取消点击事件
+                  view.container.style.cursor = 'default'; // 恢复鼠标样式
+                }
+              });
+            });
+          }
+        }
+
+        // 海拔高度输入框input事件
+        function elevationOnInput(e) {
+          let value = e.target.value;
+          if (isNaN(Number(value))) {
+            elevationInput.value = value.substr(0, value.length - 1);
+          } else {
+            setElevation(value);
+          }
+        }
+        // 设置海拔高度
+        function setElevation(number) {
+          elevation = Number(number); // 设置海拔高度
+          elevationInput.value = number; // 设置海拔高度输入框的值
+        }
+
+        // 积水深度输入框input事件
+        function depthOnInput(e) {
+          let value = e.target.value;
+          if (isNaN(Number(value))) {
+            depthInput.value = value.substr(0, value.length - 1);
+          } else {
+            setDepth(value);
+          }
+        }
+        // 设置积水深度
+        function setDepth(number) {
+          depth = Number(number); // 设置积水深度
+          depthInput.value = number; // 设置积水深度输入框的值
+        }
+
+        // 动画时长输入框input事件
+        function durationOnInput(e) {
+          let value = e.target.value;
+          if (isNaN(Number(value))) {
+            durationInput.value = value.substr(0, value.length - 1);
+          } else {
+            setDuration(Number(value));
+          }
+        }
+        // 设置动画时长
+        function setDuration(number) {
+          duration = number; // 设置动画时长
+          durationInput.value = number; // 设置动画时长输入框的值
+        }
+
+        // 设置默认值
+        function setDefaultValue() {
+          setElevation(1500); // 设置海拔高度 米
+          setDepth(150000); // 设置积水深度 毫米
+          setDuration(5); // 设置动画时长 秒
+          // 设置默认geometry
+          geometry = {
+            type: 'polygon',
+            rings: [
+              [
+                [103.36068616145837, 31.10348639821816, 1500],
+                [103.32161294109986, 31.037595800850536, 1500],
+                [103.2378326319481, 31.067370203812192, 1500],
+                [103.30103440333917, 31.136727926006987, 1500],
+                [103.36068616145837, 31.10348639821816, 1500],
+              ],
+            ],
+            spatialReference: view.spatialReference,
+          };
+        }
+
+        // 开始动画
+        function startAnimation() {
+          if (animationStartTime) {
+            // 结束动画
+            stopAnimation();
+          } else {
+            // 开始动画
+            animationStartTime = new Date().getTime(); // 设置动画开始时间
+            animationId = window.requestAnimationFrame(animation); // 动画id，用于取消动画
+          }
+
+          function animation() {
+            const now = new Date().getTime(); // 当前时间戳
+            if (!animationStartTime) {
+              return;
+            }
+            const delta = now - animationStartTime; // 时间戳差值
+            const newDepth = (depth / duration) * (delta / 1000); // 新水面高度
+            if (geometry) {
+              updateWaterSurface(
+                geometry,
+                elevation,
+                newDepth > depth ? depth : newDepth
+              );
+            }
+            if (newDepth >= depth) {
+              stopAnimation();
+            }
+            if (animationStartTime) {
+              animationId = window.requestAnimationFrame(animation);
+            }
+          }
+        }
+
+        // 停止动画
+        function stopAnimation() {
+          animationStartTime = 0; //
+          window.cancelAnimationFrame(animationId); // 取消动画
+        }
+
+        // 更新水面
+        function updateWaterSurface(geometry, elevation, depth) {
+          // 水面的symbol
+          const symbol = {
+            type: 'polygon-3d', // symbold类型
+            symbolLayers: [
+              {
+                type: 'water',
+                waveDirection: 180, // 水波传播方向
+                color: '#5975a3', //
+                waveStrength: 'moderate', // 水波的形状和强度
+                waterbodySize: 'large', // 水体的大小
+              },
+            ],
+          };
+          const height = elevation + depth / 1000; // 计算水面高度， 海拔高度 + 积水深度
+          // 设置几何图形面的点坐标信息
+          const rings = [
+            geometry.rings[0].map((item) => {
+              return [item[0], item[1], height];
+            }),
+          ];
+          geometry.rings = rings; //
+          const graphic = new Graphic({
+            // 创建新的graphic
+            geometry: geometry, // 几何图形
+            symbol: symbol, // 符号样式
+          });
+          layer.removeAll(); // 清空图层里的graphics
+          layer.add(graphic); // 添加新的graphic
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+
+    <div class="panel">
+      <div class="header">水淹模拟</div>
+      <div class="content">
+        <div class="title">
+          <div class="text">1.区域</div>
+          <div class="line"></div>
+        </div>
+        <div class="desc">
+          拖动地图至目标区域，点击下方“绘制区域”按钮后，点击地图绘制水淹分析区域，双击地图完成区域绘制。
+        </div>
+        <div class="btn" id="drawBtn">绘制区域</div>
+
+        <div class="title">
+          <div class="text">2.海拔高度</div>
+          <div class="line"></div>
+        </div>
+        <div class="desc">
+          点击下方“设置海拔高度”按钮后，点击所绘区域内最低点设置海拔高度。
+        </div>
+        <div class="btn" id="elevationBtn">设置海拔高度</div>
+        <div class="inputWrap" data-unit="米">
+          <input type="text" class="number" id="elevationInput" />
+        </div>
+
+        <div class="title">
+          <div class="text">3.积水深度</div>
+          <div class="line"></div>
+        </div>
+        <div class="desc">输入积水深度，单位毫米（mm）。</div>
+        <div class="inputWrap" data-unit="毫米">
+          <input type="text" class="number" id="depthInput" />
+        </div>
+
+        <div class="title">
+          <div class="text">4.动画模拟</div>
+          <div class="line"></div>
+        </div>
+        <div class="desc">输入动画时长，单位秒。</div>
+        <div class="inputWrap" data-unit="秒">
+          <input type="text" class="number" id="durationInput" />
+        </div>
+        <div class="btn" id="startBtn">开始动画</div>
+      </div>
+    </div>
+  </body>
+</html>
