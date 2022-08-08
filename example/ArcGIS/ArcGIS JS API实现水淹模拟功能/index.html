@@ -18,11 +18,10 @@
       require([
         'esri/Map',
         'esri/views/SceneView',
-        'esri/geometry/Mesh',
         'esri/layers/GraphicsLayer',
         'esri/Graphic',
         'esri/widgets/Sketch/SketchViewModel',
-      ], (Map, SceneView, Mesh, GraphicsLayer, Graphic, SketchViewModel) => {
+      ], (Map, SceneView, GraphicsLayer, Graphic, SketchViewModel) => {
         let map, // 地图
           view, // 三维场景
           layer, // 水面图层
@@ -79,7 +78,11 @@
           // 创建sketchViewModel实例
           sketchVM = new SketchViewModel({
             view: view,
-            layer: new GraphicsLayer({}),
+            layer: new GraphicsLayer({
+              elevationInfo: {
+                mode: 'on-the-ground',
+              },
+            }),
             polygonSymbol: {
               type: 'simple-fill',
               color: [0, 255, 255, 0.7],
