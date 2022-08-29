@@ -1,0 +1,896 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>
+      Extend the SceneView WebGL engine | Sample | ArcGIS API for JavaScript
+      4.24
+    </title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.24/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.24/"></script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <!-- A simple windmill model -->
+    <script src="https://developers.arcgis.com/javascript/latest//sample-code/scene-external-renderer/live/windmill.js"></script>
+
+    <!-- A simple fragment shader -->
+    <script id="shader-fs" type="x-shader/x-fragment">
+      precision mediump float;
+      varying vec3 vLightColor;
+      void main(void) {
+        gl_FragColor = vec4(vLightColor, 1.0);
+      }
+    </script>
+
+    <!-- A simple vertex shader -->
+    <script id="shader-vs" type="x-shader/x-vertex">
+      attribute vec3 aVertexPosition;
+      attribute vec3 aVertexNormal;
+      uniform mat4 uModelViewMatrix;
+      uniform mat4 uProjectionMatrix;
+      uniform mat3 uNormalMatrix;
+      uniform vec3 uAmbientColor;
+      uniform vec3 uLightingDirection;
+      uniform vec3 uDirectionalColor;
+      varying vec3 vLightColor;
+      void main(void) {
+        gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aVertexPosition, 1.0);
+        vec3 transformedNormal = normalize(uNormalMatrix * aVertexNormal);
+
+        float directionalLightWeighting = max(dot(transformedNormal, uLightingDirection), 0.0);
+        vLightColor = uAmbientColor + uDirectionalColor * directionalLightWeighting;
+      }
+    </script>
+
+    <!-- Our application -->
+    <script>
+      require([
+        'esri/core/Accessor',
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/views/3d/externalRenderers',
+        'esri/geometry/Extent',
+        'esri/rest/query',
+        'esri/rest/support/Query',
+        'esri/widgets/Home',
+        'https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.3.2/gl-matrix-min.js',
+        'esri/core/promiseUtils',
+      ], (
+        Accessor,
+        Map,
+        SceneView,
+        externalRenderers,
+        Extent,
+        query,
+        Query,
+        Home,
+        glMatrix,
+        promiseUtils
+      ) => {
+        /*********************
+         * Settings
+         *********************/
+
+        // The clipping extent for the scene (in WGS84)
+        const mapExtent = new Extent({
+          xmax: -130,
+          xmin: -100,
+          ymax: 40,
+          ymin: 20,
+          spatialReference: {
+            wkid: 4326,
+          },
+        });
+
+        // Request weather station data in this SR
+        const inputSR = {
+          wkid: 3857,
+        };
+
+        // Maximum number of windmills
+        const maxWindmills = 100;
+
+        // Size of the windmills.
+        // The raw model has a height of ~10.0 units.
+        const windmillHeight = 10;
+        const windmillBladeSize = 4;
+
+        /*********************
+         * Create a map
+         *********************/
+        const map = new Map({
+          basemap: 'hybrid',
+          ground: 'world-elevation',
+        });
+
+        /*********************
+         * Create a scene view
+         *********************/
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          viewingMode: 'global',
+          clippingArea: mapExtent,
+          extent: mapExtent,
+          camera: {
+            position: {
+              x: -12977859.07,
+              y: 4016696.94,
+              z: 348.61,
+              spatialReference: { wkid: 102100 },
+            },
+            heading: 316,
+            tilt: 85,
+          },
+        });
+
+        const homeBtn = new Home({
+          view: view,
+        });
+
+        // Add the home button to the top left corner of the view
+        view.ui.add(homeBtn, 'top-left');
+
+        /*******************************************************
+         * Query the wind direction (live data)
+         ******************************************************/
+        function getWindDirection() {
+          const layerURL =
+            'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/arcgis/rest/services/weather_stations_010417/FeatureServer/0/query';
+
+          const queryObject = new Query();
+          queryObject.returnGeometry = true;
+          queryObject.outFields = ['WIND_DIRECT', 'WIND_SPEED'];
+          queryObject.where = "STATION_NAME = 'Palm Springs'";
+
+          return query
+            .executeQueryJSON(layerURL, queryObject)
+            .then((results) => {
+              return {
+                direction: results.features[0].getAttribute('WIND_DIRECT') || 0,
+                speed: results.features[0].getAttribute('WIND_SPEED') || 0,
+              };
+            });
+        }
+
+        /*******************************************************
+         * Query some weather stations within the visible extent
+         ******************************************************/
+        function getWeatherStations() {
+          const layerURL =
+            'https://services.arcgis.com/V6ZHFr6zdgNZuVG0/arcgis/rest/services/palm_springs_wind_turbines/FeatureServer/0';
+
+          const queryObject = new Query();
+          queryObject.returnGeometry = true;
+          queryObject.outFields = ['tower_h', 'blade_l', 'POINT_Z'];
+          queryObject.where = 'tower_h > 0';
+          queryObject.outSpatialReference = inputSR;
+
+          return query
+            .executeQueryJSON(layerURL, queryObject)
+            .then((results) => {
+              return results.features;
+            });
+        }
+
+        /*****************************************************
+         * Install our external renderer once we have the data
+         ****************************************************/
+        promiseUtils
+          .eachAlways([getWindDirection(), getWeatherStations()])
+          .then((results) => {
+            const wind = results[0].value;
+            const stations = results[1].value;
+            const myExternalRenderer = new MyExternalRenderer(
+              view,
+              wind,
+              stations
+            );
+            externalRenderers.add(view, myExternalRenderer);
+          })
+          .catch((error) => {
+            console.log(error);
+          });
+
+        /***********************************
+         * Create an external renderer class
+         **********************************/
+        const MyExternalRenderer = Accessor.createSubclass({
+          // Input data
+          wind: null,
+          stations: null,
+          view: null,
+
+          // Number of stations to render
+          numStations: null,
+
+          // Local origin
+          localOrigin: null, // 局部原点坐标
+          localOriginRender: null, // 渲染坐标系中的原点坐标
+
+          // Vertex and index buffers
+          vboBasePositions: null, // 风车基座位置
+          vboBaseNormals: null, // 风车基座法线
+          iboBase: null, // 风车基座索引
+          vboBladesPositions: null, // 风车叶片位置
+          vboBladesNormals: null, // 风车叶片法线
+          iboBlades: null, // 风车叶片索引
+
+          // Vertex and index data
+          windmillBasePositions: null,
+          windmillBaseNormals: null,
+          windmillBaseIndices: null,
+          windmillBladesPositions: null,
+          windmillBladesNormals: null,
+          windmillBladesIndices: null,
+
+          // Shader
+          program: null,
+
+          // Shader attribute and uniform locations
+          programAttribVertexPosition: null, // 顶点位置
+          programAttribVertexNormal: null, // 顶点法线
+          programUniformProjectionMatrix: null, // 投影矩阵
+          programUniformModelViewMatrix: null, // 模型视图矩阵
+          programUniformNormalMatrix: null, // 法线矩阵
+          programUniformAmbientColor: null, // 环境光颜色
+          programUniformLightingDirection: null, // 光照方向
+          programUniformDirectionalColor: null, // 光照颜色
+
+          // Per-instance data
+          windmillInstanceWindSpeed: null,
+          windmillInstanceRPM: null,
+          windmillInstanceWindDirection: null,
+          windmillInstanceTowerScale: null,
+          windmillInstanceBladeScale: null,
+          windmillInstanceBladeOffset: null,
+          windmillInstanceInputToRender: null,
+
+          // Temporary matrices and vectors,
+          // used to avoid allocating objects in each frame.
+          tempMatrix4: new Float32Array(16),
+          tempMatrix3: new Float32Array(9),
+          tempVec3: new Float32Array(3),
+
+          /**
+           * Constructor
+           */
+          constructor: function (view, wind, stations) {
+            this.view = view;
+            this.wind = wind;
+            this.stations = stations;
+          },
+
+          /**
+           * Called once after this external renderer is added to the scene.
+           * This is part of the external renderer interface.
+           */
+          setup: function (context) {
+            this.initShaders(context);
+            this.initData(context, this.wind, this.stations);
+
+            // cleanup
+            context.resetWebGLState();
+          },
+
+          /**
+           * Called each time the scene is rendered.
+           * This is part of the external renderer interface.
+           */
+          render: function (context) {
+            const gl = context.gl;
+            const time = Date.now() / 1000.0;
+
+            // Set some global WebGL state
+            // State will be reset between each render() call
+            gl.enable(gl.DEPTH_TEST);
+            gl.disable(gl.CULL_FACE);
+            gl.disable(gl.BLEND);
+
+            // Enable our shader
+            gl.useProgram(this.program);
+            this.setCommonUniforms(context);
+
+            // Draw all the bases (one draw call)
+            this.bindWindmillBase(context);
+            glMatrix.mat4.identity(this.tempMatrix4);
+
+            // Apply local origin by translation the view matrix by the local origin, this will
+            // put the view origin (0, 0, 0) at the local origin
+            glMatrix.mat4.translate(
+              this.tempMatrix4,
+              this.tempMatrix4,
+              this.localOriginRender
+            );
+            glMatrix.mat4.multiply(
+              this.tempMatrix4,
+              context.camera.viewMatrix,
+              this.tempMatrix4
+            );
+            gl.uniformMatrix4fv(
+              this.programUniformModelViewMatrix,
+              false,
+              this.tempMatrix4
+            );
+
+            // Normals are in world coordinates, normal transformation is therefore identity
+            glMatrix.mat3.identity(this.tempMatrix3);
+            gl.uniformMatrix3fv(
+              this.programUniformNormalMatrix,
+              false,
+              this.tempMatrix3
+            );
+
+            gl.drawElements(
+              gl.TRIANGLES,
+              this.windmillBaseIndices.length,
+              gl.UNSIGNED_SHORT,
+              0
+            );
+
+            // Draw all the blades (one draw call per set of blades)
+            this.bindWindmillBlades(context);
+            for (let i = 0; i < this.numStations; ++i) {
+              // Current rotation of the blade (varies with time, random offset)
+              const bladeRotation =
+                (time / 60) * this.windmillInstanceRPM[i] + i;
+
+              // Blade transformation:
+              // 1. Scale (according to blade size)
+              // 2. Rotate around Y axis (according to wind speed, varies with time)
+              // 3. Rotate around Z axis (according to wind direction)
+              // 4. Translate along Z axis (to where the blades are attached to the base)
+              // 5. Transform to render coordinates
+              // 6. Transform to view coordinates
+              glMatrix.mat4.identity(this.tempMatrix4);
+              glMatrix.mat4.translate(
+                this.tempMatrix4,
+                this.tempMatrix4,
+                this.windmillInstanceBladeOffset[i]
+              );
+              glMatrix.mat4.rotateZ(
+                this.tempMatrix4,
+                this.tempMatrix4,
+                this.windmillInstanceWindDirection[i]
+              );
+              glMatrix.mat4.rotateY(
+                this.tempMatrix4,
+                this.tempMatrix4,
+                bladeRotation
+              );
+              glMatrix.mat4.scale(
+                this.tempMatrix4,
+                this.tempMatrix4,
+                this.windmillInstanceBladeScale[i]
+              );
+              glMatrix.mat4.multiply(
+                this.tempMatrix4,
+                this.windmillInstanceInputToRender[i],
+                this.tempMatrix4
+              );
+              glMatrix.mat3.normalFromMat4(this.tempMatrix3, this.tempMatrix4);
+              glMatrix.mat4.multiply(
+                this.tempMatrix4,
+                context.camera.viewMatrix,
+                this.tempMatrix4
+              );
+              gl.uniformMatrix4fv(
+                this.programUniformModelViewMatrix,
+                false,
+                this.tempMatrix4
+              );
+              gl.uniformMatrix3fv(
+                this.programUniformNormalMatrix,
+                false,
+                this.tempMatrix3
+              );
+              gl.drawElements(
+                gl.TRIANGLES,
+                this.windmillBladesIndices.length,
+                gl.UNSIGNED_SHORT,
+                0
+              );
+            }
+
+            // Draw continuously
+            externalRenderers.requestRender(view);
+
+            // cleanup
+            context.resetWebGLState();
+          },
+
+          /**
+           * Loads a shader from a <script> html tag
+           */
+          getShader: function (gl, id) {
+            const shaderScript = document.getElementById(id);
+            if (!shaderScript) {
+              return null;
+            }
+
+            let str = '';
+            let k = shaderScript.firstChild;
+            while (k) {
+              if (k.nodeType == 3) {
+                str += k.textContent;
+              }
+              k = k.nextSibling;
+            }
+
+            let shader;
+            if (shaderScript.type == 'x-shader/x-fragment') {
+              shader = gl.createShader(gl.FRAGMENT_SHADER);
+            } else if (shaderScript.type == 'x-shader/x-vertex') {
+              shader = gl.createShader(gl.VERTEX_SHADER);
+            } else {
+              return null;
+            }
+
+            gl.shaderSource(shader, str);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+              alert(gl.getShaderInfoLog(shader));
+              return null;
+            }
+
+            return shader;
+          },
+
+          /**
+           * Links vertex and fragment shaders into a GLSL program
+           */
+          linkProgram: function (gl, fragmentShader, vertexShader) {
+            const shaderProgram = gl.createProgram();
+
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+              return null;
+            }
+
+            return shaderProgram;
+          },
+
+          /**
+           * Initializes all shaders requried by the application
+           */
+          initShaders: function (context) {
+            const gl = context.gl;
+
+            const fragmentShader = this.getShader(gl, 'shader-fs'); // 获取片元着色器
+            const vertexShader = this.getShader(gl, 'shader-vs'); // 获取顶点着色器
+            this.program = this.linkProgram(gl, fragmentShader, vertexShader); // 链接给定的WebGLProgram，从而完成为程序的片元和顶点着色器准备 GPU 代码的过程
+            if (!this.program) {
+              alert('Could not initialise shaders');
+            }
+
+            gl.useProgram(this.program); // 将定义好的WebGLProgram 对象添加到当前的渲染状态中
+
+            // Program attributes
+            // 通过属性名称获取索引
+            this.programAttribVertexPosition = gl.getAttribLocation(
+              this.program,
+              'aVertexPosition'
+            );
+            gl.enableVertexAttribArray(this.programAttribVertexPosition); // 通过传入索引来激活顶点属性
+
+            this.programAttribVertexNormal = gl.getAttribLocation(
+              this.program,
+              'aVertexNormal'
+            );
+            gl.enableVertexAttribArray(this.programAttribVertexNormal);
+
+            // Program uniforms
+            // 通过统一变量的名称获取变量的位置
+            this.programUniformProjectionMatrix = gl.getUniformLocation(
+              this.program,
+              'uProjectionMatrix'
+            );
+            this.programUniformModelViewMatrix = gl.getUniformLocation(
+              this.program,
+              'uModelViewMatrix'
+            );
+            this.programUniformNormalMatrix = gl.getUniformLocation(
+              this.program,
+              'uNormalMatrix'
+            );
+            this.programUniformAmbientColor = gl.getUniformLocation(
+              this.program,
+              'uAmbientColor'
+            );
+            this.programUniformLightingDirection = gl.getUniformLocation(
+              this.program,
+              'uLightingDirection'
+            );
+            this.programUniformDirectionalColor = gl.getUniformLocation(
+              this.program,
+              'uDirectionalColor'
+            );
+          },
+
+          /**
+           * Creates a vertex buffer from the given data.
+           */
+          createVertexBuffer: function (gl, data) {
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+
+            // We have filled vertex buffers in 64bit precision,
+            // convert to a format compatible with WebGL
+            const float32Data = new Float32Array(data);
+
+            gl.bufferData(gl.ARRAY_BUFFER, float32Data, gl.STATIC_DRAW);
+            return buffer;
+          },
+
+          /**
+           * Creates an index buffer from the given data.
+           */
+          createIndexBuffer: function (gl, data) {
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data, gl.STATIC_DRAW);
+            return buffer;
+          },
+
+          /**
+           * Rotations per second of our turbine for a given wind speed (in km/h).
+           *
+           * This is not an exact physical formula, but rather a rough guess used
+           * to show qualitative differences between wind speeds.
+           */
+          getRPM: function (windSpeed, bladeLength) {
+            const tipSpeedRatio = 6.0;
+            return (
+              (60 * ((windSpeed * 1000) / 3600) * tipSpeedRatio) /
+              (Math.PI * 2 * bladeLength)
+            );
+          },
+
+          /**
+           * Initializes all windmill data
+           *
+           * General overview:
+           * - We create a single vertex buffer with all the vertices of all windmill bases.
+           *   This way we can render all the bases in a single draw call.
+           * - Storing the vertices directly in render coordinates would introduce precision issues.
+           *   We store them in the coordinate system of a local origin of our choice instead.
+           * - We create a vertex buffer with the vertices of one set of windmill blades.
+           *   Since the blades are animated, we render each set of blades with a different,
+           *   time-dependent transformation.
+           */
+          initData: function (context, wind, stations) {
+            const gl = context.gl;
+            this.numStations = Math.min(stations.length, maxWindmills);
+
+            // Choose a local origin.
+            // In our case, we simply use the map center.
+            // For global scenes, you'll need multiple local origins.
+            const localOriginSR = mapExtent.center.spatialReference;
+            this.localOrigin = [mapExtent.center.x, mapExtent.center.y, 0];
+
+            // Calculate local origin in render coordinates with 32bit precision
+            this.localOriginRender = externalRenderers.toRenderCoordinates(
+              view,
+              this.localOrigin,
+              0,
+              localOriginSR,
+              new Float32Array(3),
+              0,
+              1
+            );
+
+            // Extract station data into flat arrays.
+            this.windmillInstanceWindSpeed = new Float32Array(this.numStations);
+            this.windmillInstanceRPM = new Float32Array(this.numStations);
+            this.windmillInstanceWindDirection = new Float32Array(
+              this.numStations
+            );
+            this.windmillInstanceTowerScale = new Float32Array(
+              this.numStations
+            );
+            this.windmillInstanceBladeScale = new Array(this.numStations);
+            this.windmillInstanceBladeOffset = new Array(this.numStations);
+            this.windmillInstanceInputToRender = new Array(this.numStations);
+
+            for (let i = 0; i < this.numStations; ++i) {
+              const station = stations[i];
+              const bladeLength = station.getAttribute('blade_l');
+              const towerHeight = station.getAttribute('tower_h');
+
+              // Speed and direction.
+              this.windmillInstanceWindSpeed[i] = wind.speed;
+              this.windmillInstanceRPM[i] = this.getRPM(
+                wind.speed,
+                bladeLength
+              );
+              this.windmillInstanceWindDirection[i] =
+                (wind.direction / 180) * Math.PI;
+
+              // Offset and scale
+              const towerScale = towerHeight / windmillHeight;
+              this.windmillInstanceTowerScale[i] = towerScale;
+              const bladeScale = bladeLength / windmillBladeSize;
+              this.windmillInstanceBladeScale[i] = [
+                bladeScale,
+                bladeScale,
+                bladeScale,
+              ];
+              this.windmillInstanceBladeOffset[i] = glMatrix.vec3.create();
+              glMatrix.vec3.scale(
+                this.windmillInstanceBladeOffset[i],
+                windmill_blades_offset,
+                towerScale
+              );
+
+              // Transformation from input to render coordinates.
+              const inputSR = station.geometry.spatialReference;
+              const point = [
+                station.geometry.x,
+                station.geometry.y,
+                station.getAttribute('POINT_Z') || station.geometry.z,
+              ];
+              const inputToRender =
+                externalRenderers.renderCoordinateTransformAt(
+                  view,
+                  point,
+                  inputSR,
+                  new Float64Array(16)
+                );
+              this.windmillInstanceInputToRender[i] = inputToRender;
+            }
+
+            // Transform all vertices of the windmill base into the coordinate system of
+            // the local origin, and merge them into a single vertex buffer.
+            this.windmillBasePositions = new Float64Array(
+              this.numStations * windmill_base_positions.length
+            );
+            this.windmillBaseNormals = new Float64Array(
+              this.numStations * windmill_base_normals.length
+            );
+            this.windmillBaseIndices = new Uint16Array(
+              this.numStations * windmill_base_indices.length
+            );
+
+            for (let i = 0; i < this.numStations; ++i) {
+              // Transformation of positions from local to render coordinates
+              const positionMatrix = new Float64Array(16);
+              glMatrix.mat4.identity(positionMatrix);
+              glMatrix.mat4.rotateZ(
+                positionMatrix,
+                positionMatrix,
+                this.windmillInstanceWindDirection[i]
+              );
+              glMatrix.mat4.multiply(
+                positionMatrix,
+                this.windmillInstanceInputToRender[i],
+                positionMatrix
+              );
+
+              // Transformation of normals from local to render coordinates
+              const normalMatrix = new Float64Array(9);
+              glMatrix.mat3.normalFromMat4(normalMatrix, positionMatrix);
+
+              // Append vertex and index data
+              const numCoordinates = windmill_base_positions.length;
+              const numVertices = numCoordinates / 3;
+              for (let j = 0; j < numCoordinates; ++j) {
+                this.windmillBasePositions[i * numCoordinates + j] =
+                  windmill_base_positions[j] *
+                  this.windmillInstanceTowerScale[i];
+                this.windmillBaseNormals[i * numCoordinates + j] =
+                  windmill_base_normals[j];
+              }
+
+              // Transform vertices into render coordinates
+              glMatrix.vec3.forEach(
+                this.windmillBasePositions,
+                0,
+                i * numCoordinates,
+                numVertices,
+                glMatrix.vec3.transformMat4,
+                positionMatrix
+              );
+
+              // Subtract local origin coordinates
+              glMatrix.vec3.forEach(
+                this.windmillBasePositions,
+                0,
+                i * numCoordinates,
+                numVertices,
+                glMatrix.vec3.subtract,
+                this.localOriginRender
+              );
+
+              // Transform normals into render coordinates
+              glMatrix.vec3.forEach(
+                this.windmillBaseNormals,
+                0,
+                i * numCoordinates,
+                numVertices,
+                glMatrix.vec3.transformMat3,
+                normalMatrix
+              );
+
+              // Re-normalize normals
+              glMatrix.vec3.forEach(
+                this.windmillBaseNormals,
+                0,
+                i * numCoordinates,
+                numVertices,
+                glMatrix.vec3.normalize
+              );
+
+              // Append index data
+              const numIndices = windmill_base_indices.length;
+              for (let j = 0; j < numIndices; ++j) {
+                this.windmillBaseIndices[i * numIndices + j] =
+                  windmill_base_indices[j] + i * numVertices;
+              }
+            }
+
+            // Copy the vertices of the windmill blades
+            this.windmillBladesPositions = new Float64Array(
+              windmill_blades_positions
+            );
+            this.windmillBladesNormals = new Float64Array(
+              windmill_blades_normals
+            );
+            this.windmillBladesIndices = new Uint16Array(
+              windmill_blades_indices
+            );
+
+            // Upload our data to WebGL
+            this.vboBasePositions = this.createVertexBuffer(
+              gl,
+              this.windmillBasePositions
+            );
+            this.vboBaseNormals = this.createVertexBuffer(
+              gl,
+              this.windmillBaseNormals
+            );
+            this.vboBladesPositions = this.createVertexBuffer(
+              gl,
+              this.windmillBladesPositions
+            );
+            this.vboBladesNormals = this.createVertexBuffer(
+              gl,
+              this.windmillBladesNormals
+            );
+            this.iboBase = this.createIndexBuffer(gl, this.windmillBaseIndices);
+            this.iboBlades = this.createIndexBuffer(
+              gl,
+              this.windmillBladesIndices
+            );
+          },
+
+          /**
+           * Activates vertex attributes for the drawing of the windmill base.
+           */
+          bindWindmillBase: function (context) {
+            const gl = context.gl;
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vboBasePositions);
+            gl.enableVertexAttribArray(this.programAttribVertexPosition);
+            gl.vertexAttribPointer(
+              this.programAttribVertexPosition,
+              3,
+              gl.FLOAT,
+              false,
+              0,
+              0
+            );
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vboBaseNormals);
+            gl.enableVertexAttribArray(this.programAttribVertexNormal);
+            gl.vertexAttribPointer(
+              this.programAttribVertexNormal,
+              3,
+              gl.FLOAT,
+              false,
+              0,
+              0
+            );
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.iboBase);
+          },
+
+          /**
+           * Activates vertex attributes for the drawing of the windmill blades.
+           */
+          bindWindmillBlades: function (context) {
+            const gl = context.gl;
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vboBladesPositions);
+            gl.enableVertexAttribArray(this.programAttribVertexPosition);
+            gl.vertexAttribPointer(
+              this.programAttribVertexPosition,
+              3,
+              gl.FLOAT,
+              false,
+              0,
+              0
+            );
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vboBladesNormals);
+            gl.enableVertexAttribArray(this.programAttribVertexNormal);
+            gl.vertexAttribPointer(
+              this.programAttribVertexNormal,
+              3,
+              gl.FLOAT,
+              false,
+              0,
+              0
+            );
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.iboBlades);
+          },
+
+          /**
+           * Returns a color vector from a {color, intensity} object.
+           * 返回一个颜色向量
+           */
+          getFlatColor: function (src, output) {
+            output[0] = src.color[0] * src.intensity;
+            output[1] = src.color[1] * src.intensity;
+            output[2] = src.color[2] * src.intensity;
+            return output;
+          },
+
+          /**
+           * Sets common shader uniforms
+           * 设置着色器统一变量值
+           */
+          setCommonUniforms: function (context) {
+            const gl = context.gl;
+            const camera = context.camera;
+
+            // 设置统一变量的值
+            gl.uniform3fv(
+              this.programUniformDirectionalColor, // 光照颜色
+              this.getFlatColor(context.sunLight.diffuse, this.tempVec3)
+            );
+            gl.uniform3fv(
+              this.programUniformAmbientColor, // 环境光颜色
+              this.getFlatColor(context.sunLight.ambient, this.tempVec3)
+            );
+            gl.uniform3fv(
+              this.programUniformLightingDirection, // 光照方向
+              context.sunLight.direction
+            );
+
+            // 位统一变量指定矩阵值
+            gl.uniformMatrix4fv(
+              this.programUniformProjectionMatrix, // 要设置的统一变量的位置，通过 gl.getUniformLocation()方法获取位置
+              false, // 是否转置矩阵，只能是false
+              context.camera.projectionMatrix // 要设置的矩阵值
+            );
+          },
+        });
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>

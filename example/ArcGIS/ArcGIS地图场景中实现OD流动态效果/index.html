@@ -1,0 +1,392 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>ArcGIS地图场景中实现OD流动态效果</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.24/esri/css/main.css"
+    />
+    <script src="https://js.arcgis.com/4.24/"></script>
+
+    <script type="module">
+      import * as THREE from '../../../libs/threejs/three.module.r119.js';
+
+      require([
+        'esri/Map',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+        'esri/geometry/Polyline',
+        'esri/views/3d/externalRenderers',
+        'esri/geometry/support/webMercatorUtils',
+      ], function (
+        Map,
+        Basemap,
+        SceneView,
+        TileLayer,
+        Polyline,
+        externalRenderers,
+        webMercatorUtils
+      ) {
+        // 颜色
+        const colors = ['#ffff00', '#00ffe2', '#9800ff', '#ff6767'];
+
+        // 坐标数据
+        const coordinateData = {
+          北京: [116.46, 39.92],
+          成都: [104.06, 30.67],
+          上海: [121.48, 31.22],
+          拉萨: [91.11, 29.97],
+          昆明: [102.73, 25.04],
+          广州: [113.23, 23.16],
+          长沙: [113, 28.21],
+        };
+
+        // 航线数据
+        const airRoute = [
+          ['北京', '成都'],
+          ['北京', '上海'],
+          ['北京', '拉萨'],
+          ['北京', '昆明'],
+          ['北京', '广州'],
+          ['北京', '长沙'],
+        ];
+
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url: 'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          basemap: basemap,
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [
+              106.81728807741148, 17.973344421207273, 3726356.6413883436,
+            ],
+            tilt: 21.902354973840445,
+          },
+        });
+        window.view = view;
+
+        class MyRenderer {
+          view = null;
+          renderer = null; // three.js 渲染器
+          camera = null; // three.js 相机
+          scene = null; // three.js 中的场景
+          lines = [];
+
+          constructor(options) {
+            this.view = options.view;
+          }
+
+          setup(context) {
+            this.renderer = new THREE.WebGLRenderer({
+              context: context.gl, // 可用于将渲染器附加到已有的渲染环境(RenderingContext)中
+              premultipliedAlpha: false, // renderer是否假设颜色有 premultiplied alpha. 默认为true
+            });
+            this.renderer.setPixelRatio(window.devicePixelRatio); // 设置设备像素比。通常用于避免HiDPI设备上绘图模糊
+            this.renderer.setViewport(0, 0, view.width, view.height); // 视口大小设置
+
+            // 防止Three.js清除ArcGIS JS API提供的缓冲区。
+            this.renderer.autoClearDepth = false; // 定义renderer是否清除深度缓存
+            this.renderer.autoClearStencil = false; // 定义renderer是否清除模板缓存
+            this.renderer.autoClearColor = false; // 定义renderer是否清除颜色缓存
+
+            // ArcGIS JS API渲染自定义离屏缓冲区，而不是默认的帧缓冲区。
+            // 我们必须将这段代码注入到three.js运行时中，以便绑定这些缓冲区而不是默认的缓冲区。
+            const originalSetRenderTarget = this.renderer.setRenderTarget.bind(
+              this.renderer
+            );
+            this.renderer.setRenderTarget = function (target) {
+              originalSetRenderTarget(target);
+              if (target == null) {
+                // 绑定外部渲染器应该渲染到的颜色和深度缓冲区
+                context.bindRenderTarget();
+              }
+            };
+
+            this.scene = new THREE.Scene(); // 场景
+            this.camera = new THREE.PerspectiveCamera(); // 相机
+
+            // 添加坐标轴辅助工具
+            const axesHelper = new THREE.AxesHelper(10000000);
+            this.scene.add(axesHelper);
+
+            // 更新view的resolution
+            this.scene.userData.viewResolution = this.view.resolution;
+
+            // 航线数据
+            airRoute.forEach((route) => {
+              let startCoordinate = coordinateData[route[0]]; // 起点坐标
+              let endCoordinate = coordinateData[route[1]]; // 终点坐标
+              // 中间点坐标
+              let centerCoordinate = [
+                startCoordinate[0] +
+                  (endCoordinate[0] - startCoordinate[0]) / 2,
+                startCoordinate[1] +
+                  (endCoordinate[1] - startCoordinate[1]) / 2,
+              ];
+              // 转换后的起点坐标
+              let startPoint = this.pointTransform(
+                startCoordinate[0],
+                startCoordinate[1],
+                100
+              );
+              // 转换后的终点坐标
+              let endPoint = this.pointTransform(
+                endCoordinate[0],
+                endCoordinate[1],
+                100
+              );
+              // 转换后的中间点坐标
+              let centerPoint = this.pointTransform(
+                centerCoordinate[0],
+                centerCoordinate[1],
+                200000
+              );
+
+              let line = new AirLine(
+                this.scene,
+                startPoint,
+                endPoint,
+                centerPoint
+              );
+              this.lines.push(line);
+            });
+            context.resetWebGLState();
+          }
+
+          render(context) {
+            // 更新相机参数
+            const cam = context.camera;
+            this.camera.position.set(cam.eye[0], cam.eye[1], cam.eye[2]);
+            this.camera.up.set(cam.up[0], cam.up[1], cam.up[2]);
+            this.camera.lookAt(
+              new THREE.Vector3(cam.center[0], cam.center[1], cam.center[2])
+            );
+            // 投影矩阵可以直接复制
+            this.camera.projectionMatrix.fromArray(cam.projectionMatrix);
+            // 更新lines
+            this.lines.forEach((line) => {
+              line.update();
+            });
+            // 更新view的resolution
+            this.scene.userData.viewResolution = this.view.resolution;
+            // 绘制场景
+            this.renderer.state.reset();
+            this.renderer.render(this.scene, this.camera);
+            // 请求重绘视图。
+            externalRenderers.requestRender(view);
+            // cleanup
+            context.resetWebGLState();
+          }
+
+          /**
+           * 经纬度坐标点转换为渲染坐标系中的点坐标
+           * @param {number} longitude 经度
+           * @param {number} latitude 纬度
+           * @param {number} height 高度
+           * @return {array} 返回渲染坐标系中的点坐标[x, y, z]
+           */
+          pointTransform(longitude, latitude, height) {
+            let transformation = new Array(16);
+            // 将经纬度坐标转换为xy值
+            let pointXY = webMercatorUtils.lngLatToXY(longitude, latitude);
+            // 先转换高度为0的点
+            externalRenderers.renderCoordinateTransformAt(
+              this.view,
+              [pointXY[0], pointXY[1], height], // 坐标在地面上的点[x值, y值, 高度值]
+              this.view.spatialReference,
+              transformation
+            );
+            return [transformation[12], transformation[13], transformation[14]];
+          }
+        }
+
+        class AirLine {
+          scene = null; // 场景
+          color = null; // 颜色
+          startPoint = null; // 起点坐标
+          endPoint = null; // 终点坐标
+          centerPoint = null; // 中间点
+          divisions = 60; // 曲线的分段数量
+          line = null;
+          highLight = null; // 光线最亮的那一部分
+          circle = null; // 终点的圆
+          colorIndex = 0; // 高亮颜色流动的索引值
+          timestamp = 0; // 时间戳
+
+          constructor(scene, startPoint, endPoint, centerPoint) {
+            this.scene = scene;
+            this.color = colors[Math.floor(Math.random() * colors.length)];
+            this.startPoint = startPoint;
+            this.endPoint = endPoint;
+            this.centerPoint = centerPoint;
+            this.createLine();
+            this.createCircle();
+          }
+
+          // 生成线
+          createLine() {
+            // 创建一条平滑的三维曲线
+            const curve = new THREE.CatmullRomCurve3([
+              new THREE.Vector3(
+                this.startPoint[0],
+                this.startPoint[1],
+                this.startPoint[2]
+              ),
+              new THREE.Vector3(
+                this.centerPoint[0],
+                this.centerPoint[1],
+                this.centerPoint[2]
+              ),
+              new THREE.Vector3(
+                this.endPoint[0],
+                this.endPoint[1],
+                this.endPoint[2]
+              ),
+            ]);
+            const points = curve.getPoints(this.divisions); // 返回 分段数量 + 1 个点，例如这里的points.length就为31
+            const geometry = new THREE.Geometry();
+            geometry.vertices = points;
+            geometry.verticesNeedUpdate = true; // 如果顶点队列中的数据被修改，该值需要被设置为 true
+            // 设置顶点 colors 数组，与顶点数量和顺序保持一致。
+            geometry.colors = new Array(points.length).fill(
+              new THREE.Color('#ffff00')
+            );
+            // 生成材质
+            const material = new THREE.LineBasicMaterial({
+              vertexColors: THREE.VertexColors, // 顶点着色
+              transparent: true, // 定义此材质是否透明
+              side: THREE.DoubleSide,
+              opacity: 0,
+            });
+            this.line = new THREE.Line(geometry, material);
+
+            const highLightGeometry = new THREE.Geometry();
+            highLightGeometry.vertices = points.slice(
+              this.colorIndex,
+              this.colorIndex + 3
+            );
+            highLightGeometry.verticesNeedUpdate = true; // 如果顶点队列中的数据被修改，该值需要被设置为 true
+            highLightGeometry.colors = [
+              new THREE.Color(this.color),
+              new THREE.Color('#ffffff'),
+              new THREE.Color(this.color),
+            ];
+            const highLightMaterial = material.clone();
+            highLightMaterial.opacity = 1;
+            this.highLight = new THREE.Line(
+              highLightGeometry,
+              highLightMaterial
+            );
+
+            // this.scene.add(this.line);
+            this.scene.add(this.highLight);
+          }
+
+          createCircle() {
+            let radius = this.scene.userData.viewResolution * 30;
+            // 生成圆环
+            const circleGeometry = new THREE.CircleGeometry(radius, 32);
+            const ringMaterial = new THREE.MeshBasicMaterial({
+              color: new THREE.Color(this.color),
+              side: THREE.DoubleSide,
+              transparent: true, // 定义此材质是否透明
+              opacity: 1,
+            });
+            const circleMesh = new THREE.Mesh(circleGeometry, ringMaterial);
+            // 设置终点圆圈的位置
+            circleMesh.position.set(
+              this.endPoint[0],
+              this.endPoint[1],
+              this.endPoint[2]
+            );
+            // 计算调整姿态的角度
+            let deltaX = Math.atan(this.endPoint[2] / this.endPoint[1]);
+            let deltaZ = Math.atan(
+              this.endPoint[0] /
+                Math.sqrt(
+                  this.endPoint[1] * this.endPoint[1] +
+                    this.endPoint[2] * this.endPoint[2]
+                )
+            );
+            // 如果 y < 0 需要加上180°
+            if (this.endPoint[1] < 0) {
+              deltaX += Math.PI;
+            } else {
+              deltaZ *= -1;
+            }
+            // 调整圆圈姿态
+            circleMesh.rotation.x = deltaX;
+            circleMesh.rotation.z = deltaZ;
+            circleMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2); // 再沿X轴旋转90°
+            circleMesh.visible = false;
+            this.circle = circleMesh;
+            this.scene.add(circleMesh);
+          }
+
+          update() {
+            // 时间间隔
+            let now = new Date().getTime();
+            if (now - this.timestamp > 30) {
+              this.highLight.geometry.vertices =
+                this.line.geometry.vertices.slice(
+                  this.colorIndex,
+                  this.colorIndex + 3
+                );
+              // 如果geometry.vertices数据发生变化，verticesNeedUpdate值需要被设置为true
+              this.highLight.geometry.verticesNeedUpdate = true;
+
+              // 根据过程时机设置圆圈的透明度和缩放比例
+              let ratio = this.colorIndex / this.line.geometry.vertices.length;
+              this.circle.material.opacity = 1 - ratio * 2;
+              this.circle.scale.set(ratio * 2, ratio * 2, ratio * 2);
+              if (ratio >= 0.5) {
+                this.circle.visible = false;
+              }
+
+              this.timestamp = now;
+              this.colorIndex++;
+              if (this.colorIndex > this.divisions - 3) {
+                this.circle.visible = true;
+                this.colorIndex = 0;
+              }
+            }
+          }
+        }
+
+        let myRenderer = new MyRenderer({ view: view });
+
+        // 注册renderer
+        externalRenderers.add(view, myRenderer);
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
