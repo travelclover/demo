@@ -40,6 +40,11 @@
     </script>
 
     <!-- A simple vertex shader -->
+    <!--
+      normalize: 对一个向量标准化
+      max: 最大值
+      dot: 点乘 返回两个单位向量之间夹角的cos值
+    -->
     <script id="shader-vs" type="x-shader/x-vertex">
       attribute vec3 aVertexPosition;
       attribute vec3 aVertexNormal;
@@ -276,7 +281,6 @@
             this.view = view;
             this.wind = wind;
             this.stations = stations;
-            console.log(wind, stations);
           },
 
           /**
@@ -348,6 +352,7 @@
               this.tempMatrix3
             );
 
+            // 绘制所有风车基座
             gl.drawElements(
               gl.TRIANGLES, // 指定要渲染的类型 gl.TRIANGLES: 三个顶点为一组绘制一个三角形
               this.windmillBaseIndices.length, // 指定要渲染的绑定元素数组缓冲区的元素数
@@ -760,7 +765,7 @@
                 0, // 每个 vec3 开始之间的元素数
                 i * numCoordinates, // 在数组开头要跳过的元素数
                 numVertices, // 要迭代的 vec3 数量。如果 0 遍历整个数组
-                glMatrix.vec3.transformMat4, // 调用数组中每个向量的函数
+                glMatrix.vec3.transformMat4, // 调用数组中每个向量的函数 用mat4转换vec3
                 positionMatrix // 传递给 fn(上一个参数) 的附加参数
               );
 

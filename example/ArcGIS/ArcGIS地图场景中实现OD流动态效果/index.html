@@ -23,10 +23,29 @@
     />
     <script src="https://js.arcgis.com/4.24/"></script>
 
+    <!-- 片段着色器 -->
+    <script id="shader-fs" type="x-shader/x-fragment">
+      precision mediump float;
+      void main(void) {
+        gl_FragColor = vec4(1.0, 0.0, 0.0, 0.5);
+      }
+    </script>
+
+    <!-- 顶点着色器 -->
+    <script id="shader-vs" type="x-shader/x-vertex">
+      attribute vec3 aVertexPosition;
+      uniform mat4 uProjectionMatrix;
+      uniform mat4 uModelViewMatrix;
+      void main(void) {
+        gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aVertexPosition, 1.0);
+      }
+    </script>
+
     <script type="module">
       import * as THREE from '../../../libs/threejs/three.module.r119.js';
 
       require([
+        'esri/core/Accessor',
         'esri/Map',
         'esri/Basemap',
         'esri/views/SceneView',
@@ -34,39 +53,18 @@
         'esri/geometry/Polyline',
         'esri/views/3d/externalRenderers',
         'esri/geometry/support/webMercatorUtils',
+        'https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.3.2/gl-matrix-min.js',
       ], function (
+        Accessor,
         Map,
         Basemap,
         SceneView,
         TileLayer,
         Polyline,
         externalRenderers,
-        webMercatorUtils
+        webMercatorUtils,
+        glMatrix
       ) {
-        // 颜色
-        const colors = ['#ffff00', '#00ffe2', '#9800ff', '#ff6767'];
-
-        // 坐标数据
-        const coordinateData = {
-          北京: [116.46, 39.92],
-          成都: [104.06, 30.67],
-          上海: [121.48, 31.22],
-          拉萨: [91.11, 29.97],
-          昆明: [102.73, 25.04],
-          广州: [113.23, 23.16],
-          长沙: [113, 28.21],
-        };
-
-        // 航线数据
-        const airRoute = [
-          ['北京', '成都'],
-          ['北京', '上海'],
-          ['北京', '拉萨'],
-          ['北京', '昆明'],
-          ['北京', '广州'],
-          ['北京', '长沙'],
-        ];
-
         const basemap = new Basemap({
           baseLayers: [
             new TileLayer({
@@ -90,299 +88,296 @@
           },
         });
         window.view = view;
+        view.on('click', function (e) {
+          console.log(e);
+        });
 
-        class MyRenderer {
-          view = null;
-          renderer = null; // three.js 渲染器
-          camera = null; // three.js 相机
-          scene = null; // three.js 中的场景
-          lines = [];
+        const MyExternalRenderer = Accessor.createSubclass({
+          view: null,
+          points: [],
+          localOriginRender: null, // 渲染坐标系中的原点坐标
+          program: null, // webgl程序
+          programAttributeVertexPosition: null, // 顶点变量位置索引
+          programUniformProjectionMatrix: null, // 投影矩阵
+          programUniformModelViewMatrix: null, // 模型视图矩阵
+          vboPositions: null, // 顶点数据缓冲区
+          iboPositions: null, // 顶点索引数据缓冲区
+          inputToRenders: null, // 变换矩阵数组
 
-          constructor(options) {
-            this.view = options.view;
-          }
+          tempMatrix4: new Float32Array(16), // 临时4阶矩阵变量
 
-          setup(context) {
-            this.renderer = new THREE.WebGLRenderer({
-              context: context.gl, // 可用于将渲染器附加到已有的渲染环境(RenderingContext)中
-              premultipliedAlpha: false, // renderer是否假设颜色有 premultiplied alpha. 默认为true
-            });
-            this.renderer.setPixelRatio(window.devicePixelRatio); // 设置设备像素比。通常用于避免HiDPI设备上绘图模糊
-            this.renderer.setViewport(0, 0, view.width, view.height); // 视口大小设置
+          constructor: function (view) {
+            this.view = view;
+            const z = 1;
+            const spatialReference = view.spatialReference;
+            this.points = [
+              {
+                x: 11584436.586885221,
+                y: 3588413.52726299,
+                z,
+                spatialReference,
+              },
+              {
+                x: 11584439.366543537,
+                y: 3588259.371329044,
+                z,
+                spatialReference,
+              },
+              {
+                x: 11584681.532858152,
+                y: 3588263.8720208947,
+                z,
+                spatialReference,
+              },
+              {
+                x: 11584679.209025547,
+                y: 3588420.3518584534,
+                z,
+                spatialReference,
+              },
+            ];
+          },
 
-            // 防止Three.js清除ArcGIS JS API提供的缓冲区。
-            this.renderer.autoClearDepth = false; // 定义renderer是否清除深度缓存
-            this.renderer.autoClearStencil = false; // 定义renderer是否清除模板缓存
-            this.renderer.autoClearColor = false; // 定义renderer是否清除颜色缓存
+          setup: function (context) {
+            const gl = context.gl;
+            this.initShaders(context); // 初始化着色器
+            this.initData(context); // 初始化数据
 
-            // ArcGIS JS API渲染自定义离屏缓冲区，而不是默认的帧缓冲区。
-            // 我们必须将这段代码注入到three.js运行时中，以便绑定这些缓冲区而不是默认的缓冲区。
-            const originalSetRenderTarget = this.renderer.setRenderTarget.bind(
-              this.renderer
-            );
-            this.renderer.setRenderTarget = function (target) {
-              originalSetRenderTarget(target);
-              if (target == null) {
-                // 绑定外部渲染器应该渲染到的颜色和深度缓冲区
-                context.bindRenderTarget();
-              }
-            };
-
-            this.scene = new THREE.Scene(); // 场景
-            this.camera = new THREE.PerspectiveCamera(); // 相机
-
-            // 添加坐标轴辅助工具
-            const axesHelper = new THREE.AxesHelper(10000000);
-            this.scene.add(axesHelper);
-
-            // 更新view的resolution
-            this.scene.userData.viewResolution = this.view.resolution;
-
-            // 航线数据
-            airRoute.forEach((route) => {
-              let startCoordinate = coordinateData[route[0]]; // 起点坐标
-              let endCoordinate = coordinateData[route[1]]; // 终点坐标
-              // 中间点坐标
-              let centerCoordinate = [
-                startCoordinate[0] +
-                  (endCoordinate[0] - startCoordinate[0]) / 2,
-                startCoordinate[1] +
-                  (endCoordinate[1] - startCoordinate[1]) / 2,
-              ];
-              // 转换后的起点坐标
-              let startPoint = this.pointTransform(
-                startCoordinate[0],
-                startCoordinate[1],
-                100
-              );
-              // 转换后的终点坐标
-              let endPoint = this.pointTransform(
-                endCoordinate[0],
-                endCoordinate[1],
-                100
-              );
-              // 转换后的中间点坐标
-              let centerPoint = this.pointTransform(
-                centerCoordinate[0],
-                centerCoordinate[1],
-                200000
-              );
-
-              let line = new AirLine(
-                this.scene,
-                startPoint,
-                endPoint,
-                centerPoint
-              );
-              this.lines.push(line);
-            });
-            context.resetWebGLState();
-          }
-
-          render(context) {
-            // 更新相机参数
-            const cam = context.camera;
-            this.camera.position.set(cam.eye[0], cam.eye[1], cam.eye[2]);
-            this.camera.up.set(cam.up[0], cam.up[1], cam.up[2]);
-            this.camera.lookAt(
-              new THREE.Vector3(cam.center[0], cam.center[1], cam.center[2])
-            );
-            // 投影矩阵可以直接复制
-            this.camera.projectionMatrix.fromArray(cam.projectionMatrix);
-            // 更新lines
-            this.lines.forEach((line) => {
-              line.update();
-            });
-            // 更新view的resolution
-            this.scene.userData.viewResolution = this.view.resolution;
-            // 绘制场景
-            this.renderer.state.reset();
-            this.renderer.render(this.scene, this.camera);
-            // 请求重绘视图。
-            externalRenderers.requestRender(view);
             // cleanup
             context.resetWebGLState();
-          }
+          },
 
-          /**
-           * 经纬度坐标点转换为渲染坐标系中的点坐标
-           * @param {number} longitude 经度
-           * @param {number} latitude 纬度
-           * @param {number} height 高度
-           * @return {array} 返回渲染坐标系中的点坐标[x, y, z]
-           */
-          pointTransform(longitude, latitude, height) {
-            let transformation = new Array(16);
-            // 将经纬度坐标转换为xy值
-            let pointXY = webMercatorUtils.lngLatToXY(longitude, latitude);
-            // 先转换高度为0的点
-            externalRenderers.renderCoordinateTransformAt(
-              this.view,
-              [pointXY[0], pointXY[1], height], // 坐标在地面上的点[x值, y值, 高度值]
-              this.view.spatialReference,
-              transformation
-            );
-            return [transformation[12], transformation[13], transformation[14]];
-          }
-        }
+          render: function (context) {
+            const gl = context.gl;
 
-        class AirLine {
-          scene = null; // 场景
-          color = null; // 颜色
-          startPoint = null; // 起点坐标
-          endPoint = null; // 终点坐标
-          centerPoint = null; // 中间点
-          divisions = 60; // 曲线的分段数量
-          line = null;
-          highLight = null; // 光线最亮的那一部分
-          circle = null; // 终点的圆
-          colorIndex = 0; // 高亮颜色流动的索引值
-          timestamp = 0; // 时间戳
+            gl.disable(gl.DEPTH_TEST); // 关闭深度比较
+            gl.enable(gl.CULL_FACE); // 多边形剔除
+            // gl.disable(gl.BLEND); // 关闭计算的片段颜色值的混合
+            gl.enable(gl.BLEND); // 开启计算的片段颜色值的混合
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // 渲染管线α融合功能单元配置
 
-          constructor(scene, startPoint, endPoint, centerPoint) {
-            this.scene = scene;
-            this.color = colors[Math.floor(Math.random() * colors.length)];
-            this.startPoint = startPoint;
-            this.endPoint = endPoint;
-            this.centerPoint = centerPoint;
-            this.createLine();
-            this.createCircle();
-          }
+            gl.useProgram(this.program);
+            this.setCommonUniforms(context);
 
-          // 生成线
-          createLine() {
-            // 创建一条平滑的三维曲线
-            const curve = new THREE.CatmullRomCurve3([
-              new THREE.Vector3(
-                this.startPoint[0],
-                this.startPoint[1],
-                this.startPoint[2]
-              ),
-              new THREE.Vector3(
-                this.centerPoint[0],
-                this.centerPoint[1],
-                this.centerPoint[2]
-              ),
-              new THREE.Vector3(
-                this.endPoint[0],
-                this.endPoint[1],
-                this.endPoint[2]
-              ),
-            ]);
-            const points = curve.getPoints(this.divisions); // 返回 分段数量 + 1 个点，例如这里的points.length就为31
-            const geometry = new THREE.Geometry();
-            geometry.vertices = points;
-            geometry.verticesNeedUpdate = true; // 如果顶点队列中的数据被修改，该值需要被设置为 true
-            // 设置顶点 colors 数组，与顶点数量和顺序保持一致。
-            geometry.colors = new Array(points.length).fill(
-              new THREE.Color('#ffff00')
-            );
-            // 生成材质
-            const material = new THREE.LineBasicMaterial({
-              vertexColors: THREE.VertexColors, // 顶点着色
-              transparent: true, // 定义此材质是否透明
-              side: THREE.DoubleSide,
-              opacity: 0,
-            });
-            this.line = new THREE.Line(geometry, material);
-
-            const highLightGeometry = new THREE.Geometry();
-            highLightGeometry.vertices = points.slice(
-              this.colorIndex,
-              this.colorIndex + 3
-            );
-            highLightGeometry.verticesNeedUpdate = true; // 如果顶点队列中的数据被修改，该值需要被设置为 true
-            highLightGeometry.colors = [
-              new THREE.Color(this.color),
-              new THREE.Color('#ffffff'),
-              new THREE.Color(this.color),
-            ];
-            const highLightMaterial = material.clone();
-            highLightMaterial.opacity = 1;
-            this.highLight = new THREE.Line(
-              highLightGeometry,
-              highLightMaterial
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.vboPositions);
+            gl.enableVertexAttribArray(this.programAttributeVertexPosition);
+            gl.vertexAttribPointer(
+              this.programAttributeVertexPosition,
+              3,
+              gl.FLOAT,
+              false,
+              0,
+              0
             );
 
-            // this.scene.add(this.line);
-            this.scene.add(this.highLight);
-          }
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.iboPositions);
 
-          createCircle() {
-            let radius = this.scene.userData.viewResolution * 30;
-            // 生成圆环
-            const circleGeometry = new THREE.CircleGeometry(radius, 32);
-            const ringMaterial = new THREE.MeshBasicMaterial({
-              color: new THREE.Color(this.color),
-              side: THREE.DoubleSide,
-              transparent: true, // 定义此材质是否透明
-              opacity: 1,
-            });
-            const circleMesh = new THREE.Mesh(circleGeometry, ringMaterial);
-            // 设置终点圆圈的位置
-            circleMesh.position.set(
-              this.endPoint[0],
-              this.endPoint[1],
-              this.endPoint[2]
+            glMatrix.mat4.identity(this.tempMatrix4); // 将this.tempMatrix4设置为单位矩阵
+            // 通过将视图矩阵平移到局部原点来应用局部原点，这将把视图原点(0,0,0)放到局部原点
+            glMatrix.mat4.translate(
+              this.tempMatrix4, // 用于接收结果的矩阵
+              this.tempMatrix4, // 要平移的矩阵
+              this.localOriginRender // 要平移的向量
             );
-            // 计算调整姿态的角度
-            let deltaX = Math.atan(this.endPoint[2] / this.endPoint[1]);
-            let deltaZ = Math.atan(
-              this.endPoint[0] /
-                Math.sqrt(
-                  this.endPoint[1] * this.endPoint[1] +
-                    this.endPoint[2] * this.endPoint[2]
-                )
+            // 矩阵相乘
+            glMatrix.mat4.multiply(
+              this.tempMatrix4,
+              context.camera.viewMatrix,
+              this.tempMatrix4
             );
-            // 如果 y < 0 需要加上180°
-            if (this.endPoint[1] < 0) {
-              deltaX += Math.PI;
-            } else {
-              deltaZ *= -1;
-            }
-            // 调整圆圈姿态
-            circleMesh.rotation.x = deltaX;
-            circleMesh.rotation.z = deltaZ;
-            circleMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2); // 再沿X轴旋转90°
-            circleMesh.visible = false;
-            this.circle = circleMesh;
-            this.scene.add(circleMesh);
-          }
+            // 设置统一变量数据
+            gl.uniformMatrix4fv(
+              this.programUniformModelViewMatrix,
+              false,
+              this.tempMatrix4
+            );
 
-          update() {
-            // 时间间隔
-            let now = new Date().getTime();
-            if (now - this.timestamp > 30) {
-              this.highLight.geometry.vertices =
-                this.line.geometry.vertices.slice(
-                  this.colorIndex,
-                  this.colorIndex + 3
+            gl.drawElements(
+              gl.TRIANGLES, // 指定要渲染的类型
+              6, // 指定要渲染的绑定元素数组缓冲区的元素数
+              gl.UNSIGNED_SHORT, // 指定元素数组缓冲区中的值的类型
+              0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
+            );
+
+            // 一直绘制
+            externalRenderers.requestRender(view);
+
+            // cleanup
+            context.resetWebGLState();
+          },
+
+          // 初始化着色器
+          initShaders: function (context) {
+            const gl = context.gl;
+            const fragmentShader = this.getShader(gl, 'shader-fs'); // 获取片元着色器
+            const vertexShader = this.getShader(gl, 'shader-vs'); // 获取顶点着色器
+            this.program = this.linkProgram(gl, fragmentShader, vertexShader); // 链接给定的WebGLProgram，从而完成为程序的片元和顶点着色器准备 GPU 代码的过程
+            gl.useProgram(this.program); // 将定义好的WebGLProgram 对象添加到当前的渲染状态中
+
+            this.programAttributeVertexPosition = gl.getAttribLocation(
+              this.program,
+              'aVertexPosition'
+            );
+            gl.enableVertexAttribArray(this.programAttributeVertexPosition); // 通过传入索引来激活顶点属性
+
+            // 通过统一变量的名称获取变量的位置
+            // 投影矩阵
+            this.programUniformProjectionMatrix = gl.getUniformLocation(
+              this.program,
+              'uProjectionMatrix'
+            );
+            // 模型视图矩阵
+            this.programUniformModelViewMatrix = gl.getUniformLocation(
+              this.program,
+              'uModelViewMatrix'
+            );
+          },
+
+          // 初始化数据
+          initData: function (context) {
+            const gl = context.gl;
+
+            // 设置一个局部原点
+            const localOriginSR = this.view.spatialReference; // 局部原点空间参考
+            const localOrigin = [11584557.664716301, 3588340.6236806326, 0]; // 局部原点坐标
+            // 在渲染坐标中以32位精度计算局部原点
+            this.localOriginRender = externalRenderers.toRenderCoordinates(
+              this.view, // sceneView
+              localOrigin, // 坐标
+              0, // 开始读取坐标的索引
+              localOriginSR, // 空间参考
+              new Float32Array(3), // 对将写入结果的数组的引用
+              0, // 将开始写入坐标的索引
+              1 // 要变换的顶点数
+            );
+
+            // 转换后渲染坐标系中的各顶点坐标
+            const vertexToRender = new Float64Array(this.points.length * 3);
+            this.inputToRenders = new Array(this.points.length); // 变换矩阵数组
+
+            for (let i = 0; i < this.points.length; i++) {
+              const point = this.points[i];
+              // 从输入坐标到渲染坐标的转换
+              const inputSR = point.spatialReference; // 输入图形的空间参考
+              const p = [point.x, point.y, point.z];
+              // 生成变换矩阵,其中下标为12,13,14的元素分别为变换后点的[x, y, z]坐标值
+              const inputToRender =
+                externalRenderers.renderCoordinateTransformAt(
+                  view,
+                  p,
+                  inputSR,
+                  new Float64Array(16)
                 );
-              // 如果geometry.vertices数据发生变化，verticesNeedUpdate值需要被设置为true
-              this.highLight.geometry.verticesNeedUpdate = true;
+              this.inputToRenders[i] = inputToRender;
 
-              // 根据过程时机设置圆圈的透明度和缩放比例
-              let ratio = this.colorIndex / this.line.geometry.vertices.length;
-              this.circle.material.opacity = 1 - ratio * 2;
-              this.circle.scale.set(ratio * 2, ratio * 2, ratio * 2);
-              if (ratio >= 0.5) {
-                this.circle.visible = false;
-              }
-
-              this.timestamp = now;
-              this.colorIndex++;
-              if (this.colorIndex > this.divisions - 3) {
-                this.circle.visible = true;
-                this.colorIndex = 0;
-              }
+              vertexToRender[i * 3] = inputToRender[12];
+              vertexToRender[i * 3 + 1] = inputToRender[13];
+              vertexToRender[i * 3 + 2] = inputToRender[14];
             }
-          }
-        }
 
-        let myRenderer = new MyRenderer({ view: view });
+            // 减去局部原点坐标
+            glMatrix.vec3.forEach(
+              vertexToRender,
+              0, // 每个 vec3 开始之间的元素数。如果 0 假设紧密包装
+              0, // 在数组开头要跳过的元素数
+              0, // 要迭代的 vec3 数量。如果 0 遍历整个数组
+              glMatrix.vec3.subtract, // 从向量 a 中减去向量 b
+              this.localOriginRender // 传递给 glMatrix.vec3.subtract方法的附加参数，渲染坐标系中的局部原点坐标
+            );
+
+            this.vboPositions = this.createVertexBuffer(gl, vertexToRender);
+            this.iboPositions = this.createIndexBuffer(
+              gl,
+              new Uint16Array([0, 1, 2, 1, 2, 3])
+            );
+          },
+
+          setCommonUniforms: function (context) {
+            const gl = context.gl;
+            const camera = context.camera;
+
+            gl.uniformMatrix4fv(
+              this.programUniformProjectionMatrix, // 要设置的统一变量的位置，通过 gl.getUniformLocation()方法获取位置
+              false, // 是否转置矩阵，只能是false
+              camera.projectionMatrix // 要设置的矩阵值
+            );
+          },
+
+          // 从<script>中加载着色器
+          getShader: function (gl, id) {
+            const shaderScript = document.getElementById(id);
+            if (!shaderScript) return null;
+
+            let str = '';
+            let k = shaderScript.firstChild;
+            while (k) {
+              if (k.nodeType === 3) {
+                // 如果是文本节点
+                str += k.textContent;
+              }
+              k = k.nextSibling;
+            }
+
+            let shader;
+            if (shaderScript.type === 'x-shader/x-fragment') {
+              // 片元着色器
+              shader = gl.createShader(gl.FRAGMENT_SHADER);
+            } else if (shaderScript.type === 'x-shader/x-vertex') {
+              // 顶点着色器
+              shader = gl.createShader(gl.VERTEX_SHADER);
+            } else {
+              return null;
+            }
+
+            gl.shaderSource(shader, str); // 设置着色器源代码
+            gl.compileShader(shader); // 将着色器编译为二进制数据
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+              alert(gl.getShaderInfoLog(shader));
+              return null;
+            }
+
+            return shader;
+          },
+
+          linkProgram: function (gl, fragmentShader, vertexShader) {
+            // 创建并初始化一个 WebGLProgram 对象
+            const shaderProgram = gl.createProgram();
+
+            // 将片段或顶点着色器 附加到 WebGLProgram
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            // 链接给定的 WebGLProgram
+            gl.linkProgram(shaderProgram);
+
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+              return null;
+            }
+
+            return shaderProgram;
+          },
+
+          // 创建顶点缓冲区
+          createVertexBuffer(gl, data) {
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            const float32Data = new Float32Array(data);
+            gl.bufferData(gl.ARRAY_BUFFER, float32Data, gl.STATIC_DRAW);
+            return buffer;
+          },
+
+          // 创建索引缓冲区
+          createIndexBuffer(gl, data) {
+            const buffer = gl.createBuffer(); // 创建并初始化一个缓冲区
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer); // 将缓冲区绑定到用于元素索引的缓冲区
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data, gl.STATIC_DRAW); // 初始化并创建缓冲区对象的数据存储
+            return buffer;
+          },
+        });
+
+        const myExternalRenderer = new MyExternalRenderer(view);
 
         // 注册renderer
-        externalRenderers.add(view, myRenderer);
+        externalRenderers.add(view, myExternalRenderer);
       });
     </script>
   </head>
