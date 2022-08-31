@@ -27,7 +27,7 @@
     <script id="shader-fs" type="x-shader/x-fragment">
       precision mediump float;
       void main(void) {
-        gl_FragColor = vec4(1.0, 0.0, 0.0, 0.5);
+        gl_FragColor = vec4(0.0, 1.0, 1.0, 1.0);
       }
     </script>
 
@@ -37,6 +37,7 @@
       uniform mat4 uProjectionMatrix;
       uniform mat4 uModelViewMatrix;
       void main(void) {
+        gl_PointSize = 3.0;
         gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aVertexPosition, 1.0);
       }
     </script>
@@ -52,7 +53,6 @@
         'esri/layers/TileLayer',
         'esri/geometry/Polyline',
         'esri/views/3d/externalRenderers',
-        'esri/geometry/support/webMercatorUtils',
         'https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.3.2/gl-matrix-min.js',
       ], function (
         Accessor,
@@ -62,7 +62,6 @@
         TileLayer,
         Polyline,
         externalRenderers,
-        webMercatorUtils,
         glMatrix
       ) {
         const basemap = new Basemap({
@@ -82,9 +81,13 @@
           map: map,
           camera: {
             position: [
-              106.81728807741148, 17.973344421207273, 3726356.6413883436,
+              104.0656827125882, 30.65732358408135, 399.34019511472434,
             ],
-            tilt: 21.902354973840445,
+            tilt: 0.4999687036938803,
+            // position: [
+            //   104.06478892133924, 30.657153745957274, 34.158157541416585,
+            // ],
+            // tilt: 0.4999973234566608,
           },
         });
         window.view = view;
@@ -92,9 +95,39 @@
           console.log(e);
         });
 
+        const z = 1;
+        const spatialReference = view.spatialReference;
+        const line = new Polyline({
+          paths: [
+            [
+              [104.06476880971978, 30.657997816546114, z],
+              [104.06478228529863, 30.656797444547816, z],
+              [104.06697205629862, 30.656836876216936, z],
+              [104.06694337431556, 30.65804681588063, z],
+              [104.06476880971978, 30.657997816546114, z],
+            ],
+            [
+              [104.06419131882518, 30.65834871328227, z],
+              [104.06743565695369, 30.658407015597874, z],
+              [104.06746310840023, 30.656882672846358, z],
+              [104.06717858017248, 30.656499749748782, z],
+              [104.0642763671456, 30.65641085102074, z],
+              [104.06419131882518, 30.65834871328227, z],
+            ],
+          ],
+          spatialReference: view.spatialReference,
+        });
+
         const MyExternalRenderer = Accessor.createSubclass({
+          time: null, // 时间
+          flowLengthRatio: 0.05, // 流动效果长度占流动路径长度的比例
+          speed: 500, // 流动速度
+          density: 3, // 点密度
+          linesActiveIndex: [], // 每条线运动的索引值
           view: null,
-          points: [],
+          line: null,
+          linesToRender: null,
+          glPointSize: 3, // 点着色器中的点大小
           localOriginRender: null, // 渲染坐标系中的原点坐标
           program: null, // webgl程序
           programAttributeVertexPosition: null, // 顶点变量位置索引
@@ -102,40 +135,13 @@
           programUniformModelViewMatrix: null, // 模型视图矩阵
           vboPositions: null, // 顶点数据缓冲区
           iboPositions: null, // 顶点索引数据缓冲区
-          inputToRenders: null, // 变换矩阵数组
 
           tempMatrix4: new Float32Array(16), // 临时4阶矩阵变量
 
-          constructor: function (view) {
+          constructor: function (view, line) {
             this.view = view;
-            const z = 1;
-            const spatialReference = view.spatialReference;
-            this.points = [
-              {
-                x: 11584436.586885221,
-                y: 3588413.52726299,
-                z,
-                spatialReference,
-              },
-              {
-                x: 11584439.366543537,
-                y: 3588259.371329044,
-                z,
-                spatialReference,
-              },
-              {
-                x: 11584681.532858152,
-                y: 3588263.8720208947,
-                z,
-                spatialReference,
-              },
-              {
-                x: 11584679.209025547,
-                y: 3588420.3518584534,
-                z,
-                spatialReference,
-              },
-            ];
+            this.line = line;
+            this.time = new Date().getTime();
           },
 
           setup: function (context) {
@@ -149,6 +155,9 @@
 
           render: function (context) {
             const gl = context.gl;
+            const now = new Date().getTime();
+            const timeDelta = now - this.time;
+            this.time = now;
 
             gl.disable(gl.DEPTH_TEST); // 关闭深度比较
             gl.enable(gl.CULL_FACE); // 多边形剔除
@@ -158,6 +167,45 @@
 
             gl.useProgram(this.program);
             this.setCommonUniforms(context);
+
+            // 生成buffer
+            const bufferArray = [];
+            for (let i = 0; i < this.linesToRender.length; i++) {
+              const line = this.linesToRender[i];
+              // 计算需要显示的点数量
+              let highlightNum = line.length * this.flowLengthRatio;
+              if (highlightNum < 2) highlightNum = 2;
+              this.linesActiveIndex[i] =
+                (this.linesActiveIndex[i] + (this.speed * timeDelta) / 1000) %
+                line.length;
+              let points = [];
+              if (this.linesActiveIndex[i] < highlightNum) {
+                points = [
+                  ...line.slice(
+                    line.length - (highlightNum - this.linesActiveIndex[i])
+                  ),
+                  ...line.slice(0, this.linesActiveIndex[i]),
+                ];
+              } else {
+                points = line.slice(
+                  this.linesActiveIndex[i] - highlightNum,
+                  this.linesActiveIndex[i]
+                );
+              }
+              for (let j = 0; j < points.length; j++) {
+                const point = points[j];
+                bufferArray.push(point[0]);
+                bufferArray.push(point[1]);
+                bufferArray.push(point[2]);
+              }
+            }
+            this.vboPositions = this.createVertexBuffer(gl, bufferArray);
+            this.iboPositions = this.createIndexBuffer(
+              gl,
+              new Uint16Array(
+                new Array(bufferArray.length / 3).fill(1).map((n, i) => i)
+              )
+            );
 
             gl.bindBuffer(gl.ARRAY_BUFFER, this.vboPositions);
             gl.enableVertexAttribArray(this.programAttributeVertexPosition);
@@ -193,8 +241,9 @@
             );
 
             gl.drawElements(
-              gl.TRIANGLES, // 指定要渲染的类型
-              6, // 指定要渲染的绑定元素数组缓冲区的元素数
+              // gl.TRIANGLES, // 指定要渲染的类型
+              gl.POINTS, // 指定要渲染的类型
+              bufferArray.length / 3, // 指定要渲染的绑定元素数组缓冲区的元素数
               gl.UNSIGNED_SHORT, // 指定元素数组缓冲区中的值的类型
               0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
             );
@@ -238,58 +287,79 @@
             const gl = context.gl;
 
             // 设置一个局部原点
-            const localOriginSR = this.view.spatialReference; // 局部原点空间参考
-            const localOrigin = [11584557.664716301, 3588340.6236806326, 0]; // 局部原点坐标
+            const center = this.line.extent.center;
+            const localOriginSR = this.line.spatialReference; // 局部原点空间参考
+            const localOrigin = [center.x, center.y, 0]; // 局部原点坐标
             // 在渲染坐标中以32位精度计算局部原点
             this.localOriginRender = externalRenderers.toRenderCoordinates(
               this.view, // sceneView
               localOrigin, // 坐标
               0, // 开始读取坐标的索引
               localOriginSR, // 空间参考
-              new Float32Array(3), // 对将写入结果的数组的引用
+              new Float64Array(3), // 对将写入结果的数组的引用
               0, // 将开始写入坐标的索引
               1 // 要变换的顶点数
             );
 
-            // 转换后渲染坐标系中的各顶点坐标
-            const vertexToRender = new Float64Array(this.points.length * 3);
-            this.inputToRenders = new Array(this.points.length); // 变换矩阵数组
-
-            for (let i = 0; i < this.points.length; i++) {
-              const point = this.points[i];
-              // 从输入坐标到渲染坐标的转换
-              const inputSR = point.spatialReference; // 输入图形的空间参考
-              const p = [point.x, point.y, point.z];
-              // 生成变换矩阵,其中下标为12,13,14的元素分别为变换后点的[x, y, z]坐标值
-              const inputToRender =
-                externalRenderers.renderCoordinateTransformAt(
-                  view,
-                  p,
-                  inputSR,
-                  new Float64Array(16)
+            const lineNum = this.line.paths.length;
+            const linesToRender = []; // 多条线转换后的坐标数组
+            for (let i = 0; i < lineNum; i++) {
+              let line = this.line.paths[i];
+              const pointsToRender = []; // 每条线段中的点转换成渲染坐标
+              const lineToRender = []; // 每条线所有转换后的点坐标,包含插值点
+              for (let j = 0; j < line.length; j++) {
+                // 从输入坐标到渲染坐标的转换
+                const point = line[j];
+                // 生成变换矩阵,其中下标为12,13,14的元素分别为变换后点的[x, y, z]坐标值
+                const pointToRenderMat4 =
+                  externalRenderers.renderCoordinateTransformAt(
+                    view,
+                    point,
+                    localOriginSR,
+                    new Float64Array(16)
+                  );
+                const pointToRender = [
+                  pointToRenderMat4[12],
+                  pointToRenderMat4[13],
+                  pointToRenderMat4[14],
+                ];
+                // 减去局部原点坐标
+                glMatrix.vec3.subtract(
+                  pointToRender,
+                  pointToRender,
+                  this.localOriginRender
                 );
-              this.inputToRenders[i] = inputToRender;
 
-              vertexToRender[i * 3] = inputToRender[12];
-              vertexToRender[i * 3 + 1] = inputToRender[13];
-              vertexToRender[i * 3 + 2] = inputToRender[14];
+                // 从第二个点开始与前一个点进行插值
+                if (j > 0) {
+                  // 计算两个点之间的长度,向量计算
+                  const length = glMatrix.vec3.length(
+                    glMatrix.vec3.subtract(
+                      new Float64Array(3),
+                      pointsToRender[j - 1],
+                      pointToRender
+                    )
+                  );
+                  // 计算两个点之间需要插值的数量
+                  const interpolationNumber = length * this.density - 2; //
+                  for (let k = 0; k < interpolationNumber; k++) {
+                    const tempVec3 = new Float64Array(3);
+                    glMatrix.vec3.lerp(
+                      tempVec3,
+                      pointsToRender[j - 1],
+                      pointToRender,
+                      (k + 1) / (interpolationNumber + 1)
+                    );
+                    lineToRender.push(tempVec3);
+                  }
+                }
+                pointsToRender.push(pointToRender);
+                lineToRender.push(pointToRender);
+              }
+              linesToRender.push(lineToRender);
+              this.linesActiveIndex[i] = 0; // 重置运动索引标记
             }
-
-            // 减去局部原点坐标
-            glMatrix.vec3.forEach(
-              vertexToRender,
-              0, // 每个 vec3 开始之间的元素数。如果 0 假设紧密包装
-              0, // 在数组开头要跳过的元素数
-              0, // 要迭代的 vec3 数量。如果 0 遍历整个数组
-              glMatrix.vec3.subtract, // 从向量 a 中减去向量 b
-              this.localOriginRender // 传递给 glMatrix.vec3.subtract方法的附加参数，渲染坐标系中的局部原点坐标
-            );
-
-            this.vboPositions = this.createVertexBuffer(gl, vertexToRender);
-            this.iboPositions = this.createIndexBuffer(
-              gl,
-              new Uint16Array([0, 1, 2, 1, 2, 3])
-            );
+            this.linesToRender = linesToRender;
           },
 
           setCommonUniforms: function (context) {
@@ -374,7 +444,7 @@
           },
         });
 
-        const myExternalRenderer = new MyExternalRenderer(view);
+        const myExternalRenderer = new MyExternalRenderer(view, line);
 
         // 注册renderer
         externalRenderers.add(view, myExternalRenderer);
