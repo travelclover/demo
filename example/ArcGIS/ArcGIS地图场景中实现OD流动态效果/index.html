@@ -26,19 +26,23 @@
     <!-- 片段着色器 -->
     <script id="shader-fs" type="x-shader/x-fragment">
       precision mediump float;
+      varying vec4 vFragColor;
       void main(void) {
-        gl_FragColor = vec4(0.0, 1.0, 1.0, 1.0);
+        gl_FragColor = vec4(vFragColor);
       }
     </script>
 
     <!-- 顶点着色器 -->
     <script id="shader-vs" type="x-shader/x-vertex">
       attribute vec3 aVertexPosition;
+      attribute vec4 aColor;
       uniform mat4 uProjectionMatrix;
       uniform mat4 uModelViewMatrix;
+      varying vec4 vFragColor;
       void main(void) {
         gl_PointSize = 3.0;
         gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aVertexPosition, 1.0);
+        vFragColor = aColor;
       }
     </script>
 
@@ -84,10 +88,6 @@
               104.0656827125882, 30.65732358408135, 399.34019511472434,
             ],
             tilt: 0.4999687036938803,
-            // position: [
-            //   104.06478892133924, 30.657153745957274, 34.158157541416585,
-            // ],
-            // tilt: 0.4999973234566608,
           },
         });
         window.view = view;
@@ -114,15 +114,52 @@
               [104.0642763671456, 30.65641085102074, z],
               [104.06419131882518, 30.65834871328227, z],
             ],
+            [
+              [104.0651025590305, 30.657483586901062, z],
+              [104.06519785252695, 30.657682922367712, z],
+              [104.06535001851299, 30.65782047840454, z],
+              [104.06563398210902, 30.657875305239877, z],
+              [104.0658940563619, 30.657889930116703, z],
+              [104.06618948391822, 30.657886273690497, z],
+              [104.06637457885603, 30.657848497562085, z],
+              [104.06652419172056, 30.65777663663004, z],
+              [104.06662689754287, 30.657641567143354, z],
+              [104.06667009654342, 30.65747265822072, z],
+              [104.06661729756058, 30.65728339815702, z],
+              [104.06652243045477, 30.657129559782074, z],
+              [104.0663855526354, 30.657018251481666, z],
+              [104.06619115706171, 30.656942094343595, z],
+              [104.06599127984691, 30.656904639572357, z],
+              [104.06578160222396, 30.656897391524307, z],
+              [104.06556343832096, 30.65692517729434, z],
+              [104.06539441510692, 30.65698197915943, z],
+              [104.06526178585194, 30.657082360692854, z],
+              [104.06517119579924, 30.65721553723247, z],
+              [104.06512422270718, 30.657345235843852, z],
+              [104.0651025590305, 30.657483586901062, z],
+            ],
           ],
           spatialReference: view.spatialReference,
         });
 
+        // 十六进制颜色转rgba颜色
+        function hexToRgb(color) {
+          const str = '0x' + color.substring(1, color.length);
+          const b = str & 0x0000ff;
+          const g = (str & 0x00ff00) >> 8;
+          const r = (str & 0xff0000) >> 16;
+          return [r, g, b];
+        }
+
         const MyExternalRenderer = Accessor.createSubclass({
-          time: null, // 时间
-          flowLengthRatio: 0.05, // 流动效果长度占流动路径长度的比例
-          speed: 500, // 流动速度
-          density: 3, // 点密度
+          time: null, // 时间，用于动画
+          defaultColor: [0, 255, 255], // 默认颜色
+          colorsArr: [], // 线条颜色数组
+          defaultFlowRatio: 0.05, // 流动效果长度占流动路径长度的比例
+          flowRatioArr: [], //
+          defaultSpeed: 500, // 流动速度
+          speedArr: [],
+          defaultDensity: 3, // 点密度, 在地图层级放大的情况下，可能需要曾大该值
           linesActiveIndex: [], // 每条线运动的索引值
           view: null,
           line: null,
@@ -131,17 +168,35 @@
           localOriginRender: null, // 渲染坐标系中的原点坐标
           program: null, // webgl程序
           programAttributeVertexPosition: null, // 顶点变量位置索引
-          programUniformProjectionMatrix: null, // 投影矩阵
-          programUniformModelViewMatrix: null, // 模型视图矩阵
+          programAttributeColor: null, // 颜色索引
+          programUniformProjectionMatrix: null, // 投影矩阵索引
+          programUniformModelViewMatrix: null, // 模型视图矩阵索引
           vboPositions: null, // 顶点数据缓冲区
           iboPositions: null, // 顶点索引数据缓冲区
 
           tempMatrix4: new Float32Array(16), // 临时4阶矩阵变量
 
-          constructor: function (view, line) {
+          constructor: function (view, line, config = {}) {
             this.view = view;
             this.line = line;
             this.time = new Date().getTime();
+            const { color, flowRatio, speed, density } = config;
+            if (typeof color === 'string') {
+              this.defaultColor = hexToRgb(color);
+            } else if (Array.isArray(color)) {
+              this.colorsArr = color.map((item) => hexToRgb(item));
+            }
+            if (!flowRatio || typeof flowRatio === 'number') {
+              this.defaultFlowRatio = flowRatio || 0.05;
+            } else if (Array.isArray(flowRatio)) {
+              this.flowRatioArr = flowRatio;
+            }
+            if (!speed || typeof speed === 'number') {
+              this.defaultSpeed = speed || 500;
+            } else if (Array.isArray(speed)) {
+              this.speedArr = speed;
+            }
+            this.defaultDensity = density || 3;
           },
 
           setup: function (context) {
@@ -172,11 +227,13 @@
             const bufferArray = [];
             for (let i = 0; i < this.linesToRender.length; i++) {
               const line = this.linesToRender[i];
+              let flowRatio = this.flowRatioArr[i] || this.defaultFlowRatio;
+              let speed = this.speedArr[i] || this.defaultSpeed;
               // 计算需要显示的点数量
-              let highlightNum = line.length * this.flowLengthRatio;
+              let highlightNum = line.length * flowRatio;
               if (highlightNum < 2) highlightNum = 2;
               this.linesActiveIndex[i] =
-                (this.linesActiveIndex[i] + (this.speed * timeDelta) / 1000) %
+                (this.linesActiveIndex[i] + (speed * timeDelta) / 1000) %
                 line.length;
               let points = [];
               if (this.linesActiveIndex[i] < highlightNum) {
@@ -192,18 +249,25 @@
                   this.linesActiveIndex[i]
                 );
               }
+              // 获取颜色
+              let color = this.colorsArr[i] || this.defaultColor;
               for (let j = 0; j < points.length; j++) {
                 const point = points[j];
+                const colorAlpha = Math.pow((j + 1) / points.length, 3);
                 bufferArray.push(point[0]);
                 bufferArray.push(point[1]);
                 bufferArray.push(point[2]);
+                bufferArray.push(color[0] / 255);
+                bufferArray.push(color[1] / 255);
+                bufferArray.push(color[2] / 255);
+                bufferArray.push(colorAlpha);
               }
             }
             this.vboPositions = this.createVertexBuffer(gl, bufferArray);
             this.iboPositions = this.createIndexBuffer(
               gl,
               new Uint16Array(
-                new Array(bufferArray.length / 3).fill(1).map((n, i) => i)
+                new Array(bufferArray.length / 7).fill(1).map((n, i) => i)
               )
             );
 
@@ -214,8 +278,18 @@
               3,
               gl.FLOAT,
               false,
-              0,
+              7 * 4,
               0
+            );
+
+            gl.enableVertexAttribArray(this.programAttributeColor);
+            gl.vertexAttribPointer(
+              this.programAttributeColor,
+              4,
+              gl.FLOAT,
+              false,
+              7 * 4,
+              3 * 4
             );
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.iboPositions);
@@ -243,7 +317,7 @@
             gl.drawElements(
               // gl.TRIANGLES, // 指定要渲染的类型
               gl.POINTS, // 指定要渲染的类型
-              bufferArray.length / 3, // 指定要渲染的绑定元素数组缓冲区的元素数
+              bufferArray.length / 7, // 指定要渲染的绑定元素数组缓冲区的元素数
               gl.UNSIGNED_SHORT, // 指定元素数组缓冲区中的值的类型
               0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
             );
@@ -268,6 +342,11 @@
               'aVertexPosition'
             );
             gl.enableVertexAttribArray(this.programAttributeVertexPosition); // 通过传入索引来激活顶点属性
+            // 颜色
+            this.programAttributeColor = gl.getAttribLocation(
+              this.program,
+              'aColor'
+            );
 
             // 通过统一变量的名称获取变量的位置
             // 投影矩阵
@@ -341,7 +420,7 @@
                     )
                   );
                   // 计算两个点之间需要插值的数量
-                  const interpolationNumber = length * this.density - 2; //
+                  const interpolationNumber = length * this.defaultDensity - 2; //
                   for (let k = 0; k < interpolationNumber; k++) {
                     const tempVec3 = new Float64Array(3);
                     glMatrix.vec3.lerp(
@@ -444,7 +523,11 @@
           },
         });
 
-        const myExternalRenderer = new MyExternalRenderer(view, line);
+        const myExternalRenderer = new MyExternalRenderer(view, line, {
+          color: ['#00ff00', '#ff0000'], // 每条线的颜色
+          flowRatio: [0.2, 0.1], // 每条线段流动部分占整条路径的比例，取值范围在(0, 1)之间，数值越大，显示出流动状态的线越长
+          speed: [, 1000], // 线条流动速度
+        });
 
         // 注册renderer
         externalRenderers.add(view, myExternalRenderer);
