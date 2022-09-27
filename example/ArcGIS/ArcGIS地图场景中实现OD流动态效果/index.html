@@ -36,11 +36,12 @@
     <script id="shader-vs" type="x-shader/x-vertex">
       attribute vec3 aVertexPosition;
       attribute vec4 aColor;
+      attribute float aPointSize;
       uniform mat4 uProjectionMatrix;
       uniform mat4 uModelViewMatrix;
       varying vec4 vFragColor;
       void main(void) {
-        gl_PointSize = 3.0;
+        gl_PointSize = aPointSize;
         gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aVertexPosition, 1.0);
         vFragColor = aColor;
       }
@@ -160,15 +161,18 @@
           defaultSpeed: 500, // 流动速度
           speedArr: [],
           defaultDensity: 3, // 点密度, 在地图层级放大的情况下，可能需要曾大该值
+          defaultWidth: 3, // 线的默认宽度
+          widthArr: [], // 线条宽度数组
           linesActiveIndex: [], // 每条线运动的索引值
           view: null,
           line: null,
           linesToRender: null,
-          glPointSize: 3, // 点着色器中的点大小
+          glPointSize: 3.0, // 点着色器中的点大小
           localOriginRender: null, // 渲染坐标系中的原点坐标
           program: null, // webgl程序
           programAttributeVertexPosition: null, // 顶点变量位置索引
           programAttributeColor: null, // 颜色索引
+          programAttributePointSize: null, //
           programUniformProjectionMatrix: null, // 投影矩阵索引
           programUniformModelViewMatrix: null, // 模型视图矩阵索引
           vboPositions: null, // 顶点数据缓冲区
@@ -180,7 +184,7 @@
             this.view = view;
             this.line = line;
             this.time = new Date().getTime();
-            const { color, flowRatio, speed, density } = config;
+            const { color, flowRatio, speed, density, width } = config;
             if (typeof color === 'string') {
               this.defaultColor = hexToRgb(color);
             } else if (Array.isArray(color)) {
@@ -195,6 +199,11 @@
               this.defaultSpeed = speed || 500;
             } else if (Array.isArray(speed)) {
               this.speedArr = speed;
+            }
+            if (!width || typeof width === 'number') {
+              this.defaultWidth = width || 3;
+            } else if (Array.isArray(width)) {
+              this.widthArr = width;
             }
             this.defaultDensity = density || 3;
           },
@@ -229,6 +238,7 @@
               const line = this.linesToRender[i];
               let flowRatio = this.flowRatioArr[i] || this.defaultFlowRatio;
               let speed = this.speedArr[i] || this.defaultSpeed;
+              let lineWidth = this.widthArr[i] || this.defaultWidth; // 线宽度
               // 计算需要显示的点数量
               let highlightNum = line.length * flowRatio;
               if (highlightNum < 2) highlightNum = 2;
@@ -261,13 +271,17 @@
                 bufferArray.push(color[1] / 255);
                 bufferArray.push(color[2] / 255);
                 bufferArray.push(colorAlpha);
+                bufferArray.push(lineWidth);
               }
             }
+            const vertexDataNum = 8; // 每个顶点的数据量个数
             this.vboPositions = this.createVertexBuffer(gl, bufferArray);
             this.iboPositions = this.createIndexBuffer(
               gl,
               new Uint16Array(
-                new Array(bufferArray.length / 7).fill(1).map((n, i) => i)
+                new Array(bufferArray.length / vertexDataNum)
+                  .fill(1)
+                  .map((n, i) => i)
               )
             );
 
@@ -278,7 +292,7 @@
               3,
               gl.FLOAT,
               false,
-              7 * 4,
+              vertexDataNum * 4,
               0
             );
 
@@ -288,8 +302,18 @@
               4,
               gl.FLOAT,
               false,
-              7 * 4,
+              vertexDataNum * 4,
               3 * 4
+            );
+
+            gl.enableVertexAttribArray(this.programAttributePointSize);
+            gl.vertexAttribPointer(
+              this.programAttributePointSize,
+              1,
+              gl.FLOAT,
+              false,
+              vertexDataNum * 4,
+              7 * 4
             );
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.iboPositions);
@@ -317,7 +341,7 @@
             gl.drawElements(
               // gl.TRIANGLES, // 指定要渲染的类型
               gl.POINTS, // 指定要渲染的类型
-              bufferArray.length / 7, // 指定要渲染的绑定元素数组缓冲区的元素数
+              bufferArray.length / vertexDataNum, // 指定要渲染的绑定元素数组缓冲区的元素数
               gl.UNSIGNED_SHORT, // 指定元素数组缓冲区中的值的类型
               0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
             );
@@ -346,6 +370,11 @@
             this.programAttributeColor = gl.getAttribLocation(
               this.program,
               'aColor'
+            );
+            // 点大小
+            this.programAttributePointSize = gl.getAttribLocation(
+              this.program,
+              'aPointSize'
             );
 
             // 通过统一变量的名称获取变量的位置
@@ -527,6 +556,7 @@
           color: ['#00ff00', '#ff0000'], // 每条线的颜色
           flowRatio: [0.2, 0.1], // 每条线段流动部分占整条路径的比例，取值范围在(0, 1)之间，数值越大，显示出流动状态的线越长
           speed: [, 1000], // 线条流动速度
+          width: [2, 4, 6], // 每条线的宽度
         });
 
         // 注册renderer
