@@ -1,0 +1,238 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>ArcGIS JS API实现图层显隐过渡动画效果</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+      #btn {
+        position: absolute;
+        right: 100px;
+        top: 70px;
+      }
+      #btn2 {
+        position: absolute;
+        right: 100px;
+        top: 100px;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.24/esri/css/main.css"
+    />
+    <script src="https://js.arcgis.com/4.24/"></script>
+    <!-- <script src="../../../libs/tween/tween.amd.v18.6.4.js"></script> -->
+
+    <script type="module">
+      require([
+        'esri/layers/FeatureLayer',
+        'esri/Map',
+        'esri/Graphic',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+        '../../../libs/tween/tween.amd.v18.6.4.js',
+      ], function (
+        FeatureLayer,
+        Map,
+        Graphic,
+        Basemap,
+        SceneView,
+        TileLayer,
+        TWEEN
+      ) {
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url: 'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          basemap: basemap,
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [
+              104.0656827125882, 30.65732358408135, 399.34019511472434,
+            ],
+            tilt: 0.4999687036938803,
+          },
+        });
+        window.view = view;
+        view.on('click', function (e) {
+          console.log(e);
+        });
+
+        const points = [
+          [104.06476880971978, 30.657997816546114],
+          [104.06478228529863, 30.656797444547816],
+          [104.06697205629862, 30.656836876216936],
+          [104.06694337431556, 30.65804681588063],
+        ];
+        const symbol = {
+          type: 'simple-marker',
+          style: 'square',
+          color: [255, 128, 0],
+          size: '28px',
+          outline: {
+            color: [255, 255, 255],
+            width: 1,
+          },
+        };
+        const graphics = points.map((item, index) => {
+          return new Graphic({
+            geometry: {
+              type: 'point',
+              longitude: item[0],
+              latitude: item[1],
+              spatialReference: view.spatialReference,
+            },
+            attributes: {
+              ObjectID: index,
+              place: '成都' + index,
+            },
+          });
+        });
+
+        // 创建一个图层
+        const featureLayer = new FeatureLayer({
+          id: 'featureLayer',
+          title: '要素图层',
+          source: graphics,
+          fields: [
+            {
+              name: 'ObjectID',
+              alias: 'ObjectID',
+              type: 'oid',
+            },
+            {
+              name: 'place',
+              alias: 'Place',
+              type: 'string',
+            },
+          ],
+          objectIdField: 'ObjectID',
+          geometryType: 'point',
+          renderer: {
+            type: 'simple',
+            symbol,
+          },
+          effect: 'bloom(2.5 0 0.5)',
+        });
+
+        map.add(featureLayer);
+
+        let animating = false;
+        let opacity = 0;
+        let finalOpacity = 1;
+        let layerVisible = featureLayer.visible;
+
+        // 创建按钮并绑定按钮事件
+        const btn = document.querySelector('#btn');
+        btn.addEventListener(
+          'click',
+          () => {
+            if (animating) {
+              return;
+            }
+            animating = true;
+            layerVisible = !layerVisible;
+            if (layerVisible) {
+              opacity = 0;
+              finalOpacity = 1;
+              requestAnimationFrame(fadeVisibilityOn);
+            } else {
+              opacity = 1;
+              finalOpacity = 0;
+              requestAnimationFrame(fadeVisibilityOff);
+            }
+          },
+          false
+        );
+
+        function fadeVisibilityOn() {
+          if (opacity >= finalOpacity && animating) {
+            animating = false;
+            return;
+          }
+          opacity += 0.05;
+          featureLayer.opacity = opacity;
+          requestAnimationFrame(fadeVisibilityOn);
+        }
+
+        function fadeVisibilityOff() {
+          if (opacity <= 0 && animating) {
+            animating = false;
+            return;
+          }
+          opacity -= 0.05;
+          featureLayer.opacity = opacity;
+          requestAnimationFrame(fadeVisibilityOff);
+        }
+
+        // 创建按钮2并绑定按钮事件
+        const btn2 = document.querySelector('#btn2');
+        btn2.addEventListener(
+          'click',
+          () => {
+            if (animating) {
+              return;
+            }
+            animating = true;
+            layerVisible = !layerVisible;
+            if (layerVisible) {
+              opacity = 0;
+              finalOpacity = 1;
+            } else {
+              opacity = 1;
+              finalOpacity = 0;
+            }
+            const modifies = { opacity: opacity };
+            const tween = new TWEEN.Tween(modifies)
+              .to({ opacity: finalOpacity }, 500)
+              .easing(TWEEN.Easing.Quadratic.In)
+              .onUpdate(() => {
+                opacity = modifies.opacity;
+                featureLayer.opacity = modifies.opacity;
+              })
+              .start()
+              .repeat(2)
+              .onComplete(() => {
+                console.log('complete');
+                animating = false;
+              });
+          },
+          false
+        );
+
+        function animate(time) {
+          requestAnimationFrame(animate);
+          TWEEN.update(time);
+        }
+        animate();
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+
+    <button id="btn">地图显隐切换</button>
+    <button id="btn2">地图显隐切换2</button>
+  </body>
+</html>
