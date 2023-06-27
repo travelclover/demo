@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>使用ArcGIS JS API与Tween.js实现图层闪烁动画效果</title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.24/esri/themes/light/main.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <script src="https://js.arcgis.com/4.24/"></script>
+    <style>
+      #viewDiv {
+        position: absolute;
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+    </style>
+    <script>
+      require([
+        'esri/Map',
+        'esri/views/MapView',
+        'esri/Graphic',
+        'esri/layers/GraphicsLayer',
+        'esri/geometry/Point',
+        'esri/symbols/SimpleMarkerSymbol',
+        'dojo/domReady!',
+      ], function (
+        Map,
+        MapView,
+        Graphic,
+        GraphicsLayer,
+        Point,
+        SimpleMarkerSymbol
+      ) {
+        // 创建地图
+        const map = new Map({
+          basemap: 'streets-navigation-vector',
+        });
+
+        // 创建场景
+        const view = new MapView({
+          container: 'viewDiv',
+          map: map,
+          zoom: 12,
+          center: [-118.2437, 34.0522],
+        });
+
+        // 创建图层
+        const graphicsLayer = new GraphicsLayer();
+        map.add(graphicsLayer);
+
+        // 创建点
+        const point = new Point({
+          x: -118.2437,
+          y: 34.0522,
+          spatialReference: view.spatialReference,
+        });
+
+        // 创建符号
+        const markerSymbol = new SimpleMarkerSymbol({
+          color: [255, 0, 0],
+          size: '40px',
+          outline: {
+            color: [255, 255, 255],
+            width: 1,
+          },
+        });
+
+        // 创建点符合
+        const graphic = new Graphic({
+          geometry: point,
+          symbol: markerSymbol,
+        });
+
+        graphicsLayer.add(graphic);
+
+        // 创建Tween动画
+        const options = { opacity: 1 };
+        const tween = new TWEEN.Tween(options)
+          .to({ opacity: 0 }, 1000)
+          .easing(TWEEN.Easing.Quadratic.Out) // 变化函数
+          .repeat(Infinity) // 无限循环
+          .yoyo(true) // 动画在循环时反转方向
+          .onUpdate(function () {
+            graphicsLayer.opacity = options.opacity;
+          });
+        tween.start();
+
+        // 循环动画
+        function animate(time) {
+          requestAnimationFrame(animate);
+          TWEEN.update(time);
+        }
+        requestAnimationFrame(animate);
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>

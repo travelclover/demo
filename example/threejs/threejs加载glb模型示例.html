@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>threejs加载glb模型示例</title>
+
+    <!-- 由于某些浏览器尚不支持导入映射，因此加入 polyfill es-module-shims.js。 -->
+    <script
+      async
+      src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"
+    ></script>
+
+    <!-- 添加一个导入映射，定义从何处获取包 -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.151.3/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.151.3/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js'; // 轨道控制器，可以使得相机围绕目标进行轨道运动
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // gltf模型加载器
+
+      let camera, scene, renderer;
+
+      init();
+      render();
+
+      function init() {
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+
+        camera = new THREE.PerspectiveCamera(
+          45,
+          window.innerWidth / window.innerHeight,
+          0.25,
+          20
+        );
+        camera.position.set(0, 0.6, 10);
+
+        scene = new THREE.Scene();
+
+        const light = new THREE.HemisphereLight(0xffffbb, 0x080820, 1);
+        scene.add(light);
+
+        // model
+        const loader = new GLTFLoader().setPath('../../assets/models/');
+        loader.load('小黄人.glb', function (gltf) {
+          console.log(gltf);
+          scene.add(gltf.scene);
+
+          render();
+        });
+
+        renderer = new THREE.WebGLRenderer({ antialias: true }); // 打开抗锯齿
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        container.appendChild(renderer.domElement);
+
+        // 创建并设置轨道控制器
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.addEventListener('change', render);
+        controls.minDistance = 3;
+        controls.maxDistance = 20;
+        controls.target.set(0, 0, -0.2);
+        controls.update();
+
+        window.addEventListener('resize', onWindowResize);
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        render();
+      }
+
+      function render() {
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
+</html>

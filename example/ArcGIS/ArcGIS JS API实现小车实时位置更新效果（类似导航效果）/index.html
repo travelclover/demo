@@ -1,0 +1,320 @@
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,
+      maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现小车实时位置更新效果（类似导航效果）</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      .followingBtn {
+        position: fixed;
+        bottom: 100px;
+        left: 50%;
+        padding: 8px 16px;
+        transform: translateX(-50%);
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+    </style>
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.27/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.27/"></script>
+    <script>
+      require([
+        'esri/Map',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+        'esri/layers/StreamLayer',
+        'esri/geometry/Point',
+        'esri/geometry/Polyline',
+        'esri/Graphic',
+        'esri/symbols/ObjectSymbol3DLayer',
+        'esri/geometry/geometryEngine',
+      ], (
+        Map,
+        Basemap,
+        SceneView,
+        TileLayer,
+        StreamLayer,
+        Point,
+        Polyline,
+        Graphic,
+        ObjectSymbol3DLayer,
+        geometryEngine
+      ) => {
+        let streamLayer,
+          following = false, // 是否跟随
+          updateInterval = 1000 / 24, // 更新间隔
+          previousTimeStamp = 0, // 上次更新时间戳
+          index = 0, // 更新时，路径点列表的索引
+          objectIdCounter = 0; // objectId
+
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url: 'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          basemap: basemap,
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [
+              // 11584773.82107007, 3582723.297225328, 1400.6460111523047,
+              104.06779386534953, 30.61402157268845, 1400.646011153236,
+            ],
+            tilt: 0.5015795975933416,
+          },
+          spatialReference: {
+            wkid: 3857,
+          },
+        });
+
+        // 路径点
+        const points = [
+          [11584716.064248439, 3582737.033464487],
+          [11584863.752091048, 3582741.2897331216],
+          [11584865.678214367, 3582862.4641863955],
+          [11584851.156599585, 3583014.2159552197],
+          [11584844.070043512, 3583118.873425072],
+          [11584770.389997225, 3583160.3257233445],
+          [11584705.427134208, 3583158.697613207],
+          [11584716.064248439, 3582737.033464487],
+        ];
+        let line = new Polyline({
+          paths: [points],
+          spatialReference: view.spatialReference,
+        });
+
+        // 密度插值
+        const maxSegmentLength = 2; // 分段最大长度
+        const maxSegmentLengthUnit = 'meters'; // 最大分段长度单位 "meters"|"feet"|"kilometers"|"miles"|"nautical-miles"|"yards"|Number
+        line = geometryEngine.densify(
+          line,
+          maxSegmentLength,
+          maxSegmentLengthUnit
+        );
+
+        // 创建graphic
+        const path = new Graphic({
+          geometry: line,
+          symbol: {
+            type: 'simple-line',
+            color: 'lightblue',
+            width: '2px',
+            style: 'solid',
+          },
+        });
+        view.graphics.add(path);
+
+        initStreamLayer(); // 初始化stream图层
+        addEvent(); // 添加按钮点击事件
+        window.requestAnimationFrame(updateStreamLayer);
+
+        // 添加事件
+        function addEvent() {
+          const btn = document.querySelector('.followingBtn');
+          if (btn) {
+            btn.addEventListener(
+              'click',
+              () => {
+                following = !following;
+                const checkbox = document.querySelector('#followingCheckbox');
+                if (checkbox) {
+                  checkbox.checked = following;
+                }
+              },
+              false
+            );
+          }
+        }
+
+        // 初始化streamLayer
+        function initStreamLayer() {
+          streamLayer = new StreamLayer({
+            objectIdField: 'OBJECTID',
+            fields: [
+              {
+                name: 'OBJECTID', // required
+                alias: 'ObjectId',
+                type: 'oid',
+              },
+              {
+                name: 'TRACKID',
+                alias: 'TrackId',
+                type: 'long',
+              },
+            ],
+            timeInfo: {
+              trackIdField: 'TRACKID', // required
+            },
+            geometryType: 'point', // required
+            updateInterval: updateInterval,
+            popupEnabled: false,
+            renderer: {
+              type: 'simple',
+              symbol: {
+                type: 'web-style',
+                name: 'Audi_A6',
+                styleName: 'EsriRealisticTransportationStyle',
+              },
+              visualVariables: [
+                {
+                  type: 'size',
+                  axis: 'height',
+                  field: 'height',
+                  valueUnit: 'meters',
+                },
+                {
+                  type: 'rotation',
+                  field: 'heading',
+                  rotationType: 'arithmetic', // geographic：从正北方向顺时针方向旋转  arithmetic：从正东方向逆时针旋转
+                },
+              ],
+            },
+          });
+
+          view.map.add(streamLayer);
+        }
+
+        /**
+         * 算夹角
+         * @param p1 点1的坐标
+         * @param p2 点2的坐标
+         * @returns 返回角度的度数 -180到180
+         */
+        function getAngle(p1, p2) {
+          // 计算线段的斜率
+          let slope = (p2.y - p1.y) / (p2.x - p1.x);
+          // 计算反正切值，得到弧度制的角度
+          let angleRad = Math.atan(slope);
+          // 将弧度制转换为角度制
+          let angleDeg = (angleRad * 180) / Math.PI;
+          // 如果线段在第二、三象限，则加上180度
+          if (p2.x < p1.x) {
+            angleDeg += 180;
+          }
+          // 如果角度超出-180度到180度的范围，则减去360度或加上360度
+          if (angleDeg > 180) {
+            angleDeg -= 360;
+          } else if (angleDeg < -180) {
+            angleDeg += 360;
+          }
+          // 返回夹角
+          return angleDeg;
+        }
+
+        // 更新streamLayer
+        function updateStreamLayer(timestamp) {
+          if (timestamp - previousTimeStamp >= updateInterval) {
+            previousTimeStamp = timestamp;
+
+            index += 1;
+            if (index > line.paths[0].length - 2) {
+              index = 0;
+            }
+            const point1 = {
+              x: line.paths[0][index][0],
+              y: line.paths[0][index][1],
+            };
+            const point2 = {
+              x: line.paths[0][index + 1][0],
+              y: line.paths[0][index + 1][1],
+            };
+            const angle = getAngle(point1, point2);
+            streamLayer.sendMessageToClient({
+              type: 'features',
+              features: [
+                {
+                  attributes: {
+                    TRACKID: 1,
+                    OBJECTID: objectIdCounter++,
+                    height: 10,
+                    heading: angle,
+                  },
+                  geometry: {
+                    x: point2.x,
+                    y: point2.y,
+                  },
+                },
+              ],
+            });
+
+            // 跟随视角
+            if (following) {
+              updateCamera(point1, point2, angle);
+            }
+          }
+          window.requestAnimationFrame(updateStreamLayer);
+        }
+
+        /**
+         * 更新跟随视角
+         * @param p1 第1个点坐标
+         * @param p2 第2个点坐标
+         * @param angle 角度
+         * @returns
+         */
+        function updateCamera(p1, p2, angle) {
+          const height = view.camera.position.z; // 相机高度
+          const tilt = view.camera.tilt; // 相机倾斜角度
+          const { x, y } = calculateCameraPosition(p1, p2, height, tilt);
+          const camera = view.camera.clone();
+          camera.position.x = x;
+          camera.position.y = y;
+          camera.heading = -(angle + 90) + 180; // heading为正北方向逆时针旋转，所以需要从正东方向的角度转成从正北方向逆时针旋转的角度
+          view.goTo(camera);
+        }
+
+        /**
+         * 计算倾斜后相机位置
+         * @param p1 第1个点坐标
+         * @param p2 第2个点坐标
+         * @param h 相机高度
+         * @param tilt 相机倾斜角度
+         * @returns 返回相机x,y坐标
+         */
+        function calculateCameraPosition(p1, p2, h, tilt) {
+          const distance = Math.tan((tilt / 180) * Math.PI) * h; // 距离
+          const d = Math.sqrt(
+            (p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y)
+          );
+          const ratio = d / (d + distance);
+          const x = (p1.x - p2.x) / ratio + p2.x;
+          const y = (p1.y - p2.y) / ratio + p2.y;
+          return { x, y };
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+
+    <div class="followingBtn">
+      <input type="checkbox" name="followingCheckbox" id="followingCheckbox" />
+      <span>视角跟随</span>
+    </div>
+  </body>
+</html>
