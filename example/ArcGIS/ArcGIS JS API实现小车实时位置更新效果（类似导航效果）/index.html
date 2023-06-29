@@ -16,7 +16,7 @@
         margin: 0;
         padding: 0;
       }
-      .followingBtn {
+      .btns {
         position: fixed;
         bottom: 100px;
         left: 50%;
@@ -25,7 +25,11 @@
         background: #fff;
         border: 1px solid #ccc;
         border-radius: 3px;
-        cursor: pointer;
+        display: flex;
+        align-items: center;
+      }
+      button {
+        margin-left: 8px;
       }
     </style>
     <link
@@ -59,6 +63,10 @@
       ) => {
         let streamLayer,
           following = false, // 是否跟随
+          moving = false, // 是否移动
+          speed = 20, // 速度 m/s
+          speedIncrement = 40, // 速度增量
+          line, // 路径geometry
           updateInterval = 1000 / 24, // 更新间隔
           previousTimeStamp = 0, // 上次更新时间戳
           index = 0, // 更新时，路径点列表的索引
@@ -102,23 +110,17 @@
           [11584705.427134208, 3583158.697613207],
           [11584716.064248439, 3582737.033464487],
         ];
-        let line = new Polyline({
+        const path = new Polyline({
           paths: [points],
           spatialReference: view.spatialReference,
         });
 
         // 密度插值
-        const maxSegmentLength = 2; // 分段最大长度
-        const maxSegmentLengthUnit = 'meters'; // 最大分段长度单位 "meters"|"feet"|"kilometers"|"miles"|"nautical-miles"|"yards"|Number
-        line = geometryEngine.densify(
-          line,
-          maxSegmentLength,
-          maxSegmentLengthUnit
-        );
+        updateLine();
 
         // 创建graphic
-        const path = new Graphic({
-          geometry: line,
+        const pathGraphic = new Graphic({
+          geometry: path,
           symbol: {
             type: 'simple-line',
             color: 'lightblue',
@@ -126,28 +128,96 @@
             style: 'solid',
           },
         });
-        view.graphics.add(path);
+        view.graphics.add(pathGraphic);
 
         initStreamLayer(); // 初始化stream图层
-        addEvent(); // 添加按钮点击事件
-        window.requestAnimationFrame(updateStreamLayer);
+        addEvents(); // 添加按钮点击事件
+
+        /**
+         * 更新线，修改线的点密度
+         */
+        function updateLine() {
+          const maxSegmentLength = speed / (1000 / updateInterval); // 分段最大长度
+          const maxSegmentLengthUnit = 'meters'; // 最大分段长度单位 "meters"|"feet"|"kilometers"|"miles"|"nautical-miles"|"yards"|Number
+          line = geometryEngine.densify(
+            path,
+            maxSegmentLength,
+            maxSegmentLengthUnit
+          );
+        }
 
         // 添加事件
-        function addEvent() {
-          const btn = document.querySelector('.followingBtn');
-          if (btn) {
-            btn.addEventListener(
-              'click',
-              () => {
-                following = !following;
-                const checkbox = document.querySelector('#followingCheckbox');
-                if (checkbox) {
-                  checkbox.checked = following;
-                }
-              },
-              false
-            );
+        function addEvents() {
+          addClickEvent($('.followingBtn'), followBtnOnClick); // 绑定跟随按钮
+          addClickEvent($('#playBtn'), playBtnOnClick); // 绑定开始停止按钮
+          addClickEvent($('#fastBtn'), fastBtnOnClick); // 绑定加速按钮
+          addClickEvent($('#slowBtn'), slowBtnOnClick); // 绑定减速按钮
+        }
+
+        /**
+         * 获取dom节点。
+         * @param {string} selector - 选择符
+         * @returns {object ｜ undefind} 返回dom节点
+         */
+        function $(selector) {
+          return document.querySelector(selector);
+        }
+
+        /**
+         * 给制定dom添加点击事件。
+         * @param {object} dom - dom节点
+         * @param {object} fn - 事件函数
+         */
+        function addClickEvent(dom, fn) {
+          if (dom) dom.addEventListener('click', fn, false);
+        }
+
+        /**
+         * 跟随按钮点击事件
+         */
+        function followBtnOnClick() {
+          following = !following;
+          const checkbox = document.querySelector('#followingCheckbox');
+          if (checkbox) {
+            checkbox.checked = following;
           }
+        }
+
+        /**
+         * 开始/停止按钮事件
+         */
+        function playBtnOnClick() {
+          moving = !moving;
+          const btnText = moving ? '停止' : '开始';
+          const btn = $('#playBtn');
+          if (btn) btn.innerText = btnText;
+          if (moving) {
+            window.requestAnimationFrame(updateStreamLayer);
+          }
+        }
+
+        /**
+         * 加速按钮点击事件
+         */
+        function fastBtnOnClick() {
+          const percent = index / line.paths[0].length; // 记录行驶路程的百分比
+          speed += speedIncrement;
+          console.log(speed + 'm/s');
+          updateLine();
+          index = Math.floor(percent * line.paths[0].length); // 根据百分比设置新的索引值
+        }
+
+        /**
+         * 减速按钮点击事件
+         */
+        function slowBtnOnClick() {
+          const percent = index / line.paths[0].length; // 记录行驶路程的百分比
+          if (speed > speedIncrement) {
+            speed -= speedIncrement;
+          }
+          console.log(speed + 'm/s');
+          updateLine();
+          index = Math.floor(percent * line.paths[0].length); // 根据百分比设置新的索引值
         }
 
         // 初始化streamLayer
@@ -179,6 +249,7 @@
                 name: 'Audi_A6',
                 styleName: 'EsriRealisticTransportationStyle',
               },
+              // 视觉变量
               visualVariables: [
                 {
                   type: 'size',
@@ -196,13 +267,23 @@
           });
 
           view.map.add(streamLayer);
+          view.whenLayerView(streamLayer).then(() => {
+            window.requestAnimationFrame(updateStreamLayer);
+          });
         }
 
         /**
+         * 包含坐标x、y的点对象类型
+         * @typedef {Object} Point
+         * @property {number} x - x坐标
+         * @property {number} y - y坐标
+         */
+
+        /**
          * 算夹角
-         * @param p1 点1的坐标
-         * @param p2 点2的坐标
-         * @returns 返回角度的度数 -180到180
+         * @param {Point} p1 点1的坐标
+         * @param {Point} p2 点2的坐标
+         * @returns {number} 返回角度的度数 -180到180
          */
         function getAngle(p1, p2) {
           // 计算线段的斜率
@@ -225,7 +306,10 @@
           return angleDeg;
         }
 
-        // 更新streamLayer
+        /**
+         * 更新streamLayer
+         * @param {number} timestamp 表示 requestAnimationFrame() 开始执行回调函数的时刻
+         */
         function updateStreamLayer(timestamp) {
           if (timestamp - previousTimeStamp >= updateInterval) {
             previousTimeStamp = timestamp;
@@ -262,19 +346,18 @@
             });
 
             // 跟随视角
-            if (following) {
-              updateCamera(point1, point2, angle);
-            }
+            if (following) updateCamera(point1, point2, angle);
           }
-          window.requestAnimationFrame(updateStreamLayer);
+          if (moving) {
+            window.requestAnimationFrame(updateStreamLayer);
+          }
         }
 
         /**
          * 更新跟随视角
-         * @param p1 第1个点坐标
-         * @param p2 第2个点坐标
-         * @param angle 角度
-         * @returns
+         * @param {Point} p1 - 第1个点坐标
+         * @param {Point} p2 - 第2个点坐标
+         * @param {number} angle - 角度
          */
         function updateCamera(p1, p2, angle) {
           const height = view.camera.position.z; // 相机高度
@@ -289,11 +372,11 @@
 
         /**
          * 计算倾斜后相机位置
-         * @param p1 第1个点坐标
-         * @param p2 第2个点坐标
-         * @param h 相机高度
-         * @param tilt 相机倾斜角度
-         * @returns 返回相机x,y坐标
+         * @param {Point} p1 - 第1个点坐标
+         * @param {Point} p2 - 第2个点坐标
+         * @param {number} h - 相机高度
+         * @param {number} tilt - 相机倾斜角度
+         * @returns {Point} 返回相机x,y坐标
          */
         function calculateCameraPosition(p1, p2, h, tilt) {
           const distance = Math.tan((tilt / 180) * Math.PI) * h; // 距离
@@ -312,9 +395,19 @@
   <body>
     <div id="viewDiv"></div>
 
-    <div class="followingBtn">
-      <input type="checkbox" name="followingCheckbox" id="followingCheckbox" />
-      <span>视角跟随</span>
+    <div class="btns">
+      <div class="followingBtn">
+        <input
+          type="checkbox"
+          name="followingCheckbox"
+          id="followingCheckbox"
+        />
+        <span>视角跟随</span>
+      </div>
+
+      <button id="playBtn">开始</button>
+      <button id="fastBtn">加速</button>
+      <button id="slowBtn">减速</button>
     </div>
   </body>
 </html>
