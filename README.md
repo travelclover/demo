@@ -1,5 +1,5 @@
 ## ArcGIS API for JavaScript相关demo
-1. ArcGIS JS API实现小车实时位置更新效果（类似导航效果） [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现小车实时位置更新效果（类似导航效果）/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现小车实时位置更新效果（类似导航效果）/index.html)]  
+1. ArcGIS JS API实现小车导航效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现小车导航效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现小车导航效果/index.html)]  
 2. ArcGIS JS API实现图层显隐过渡动画效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现图层显隐过渡动画效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现图层显隐过渡动画效果/index.html)]  
 3. ArcGIS JS API创建自定义图层实现在2D地图中渲染水波纹扩散效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API创建自定义图层实现在2D地图中渲染水波纹扩散效果.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API创建自定义图层实现在2D地图中渲染水波纹扩散效果.html)]  
 4. ArcGIS JS API+Three.js实现下雪特效 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API+Three.js实现下雪特效.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API+Three.js实现下雪特效.html)]  
