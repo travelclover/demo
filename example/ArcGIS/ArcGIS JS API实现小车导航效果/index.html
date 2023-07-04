@@ -223,7 +223,7 @@
         // 初始化streamLayer
         function initStreamLayer() {
           streamLayer = new StreamLayer({
-            objectIdField: 'OBJECTID',
+            objectIdField: 'OBJECTID', // required
             fields: [
               {
                 name: 'OBJECTID', // required
@@ -253,12 +253,13 @@
               visualVariables: [
                 {
                   type: 'size',
-                  axis: 'height',
+                  axis: 'height', // width, depth
                   field: 'height',
                   valueUnit: 'meters',
                 },
                 {
                   type: 'rotation',
+                  axis: 'heading', //
                   field: 'heading',
                   rotationType: 'arithmetic', // geographic：从正北方向顺时针方向旋转  arithmetic：从正东方向逆时针旋转
                 },

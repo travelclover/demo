@@ -1,0 +1,238 @@
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,
+      maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API实现小车导航效果</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      .btns {
+        position: fixed;
+        bottom: 100px;
+        left: 50%;
+        padding: 8px 16px;
+        transform: translateX(-50%);
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 3px;
+        display: flex;
+        align-items: center;
+      }
+      button {
+        margin-left: 8px;
+      }
+    </style>
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.27/esri/themes/light/main.css"
+    />
+    <script src="./TrackVoyage.js"></script>
+    <script src="https://js.arcgis.com/4.27/"></script>
+    <script>
+      require([
+        'esri/Map',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+        'esri/layers/StreamLayer',
+        'esri/geometry/Point',
+        'esri/geometry/Polyline',
+        'esri/Graphic',
+        'esri/symbols/ObjectSymbol3DLayer',
+        'esri/geometry/geometryEngine',
+      ], (
+        Map,
+        Basemap,
+        SceneView,
+        TileLayer,
+        StreamLayer,
+        Point,
+        Polyline,
+        Graphic,
+        ObjectSymbol3DLayer,
+        geometryEngine
+      ) => {
+        let streamLayer,
+          following = false, // 是否跟随
+          moving = false, // 是否移动
+          speed = 20, // 速度 m/s
+          speedIncrement = 40; // 速度增量
+
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url: 'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          basemap: basemap,
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [
+              // 11584773.82107007, 3582723.297225328, 1400.6460111523047,
+              104.06779386534953, 30.61402157268845, 1400.646011153236,
+            ],
+            tilt: 0.5015795975933416,
+          },
+          spatialReference: {
+            wkid: 3857,
+          },
+        });
+        window.view = view;
+
+        // 路径点
+        const points = [
+          [11584716.064248439, 3582737.033464487],
+          [11584863.752091048, 3582741.2897331216],
+          [11584865.678214367, 3582862.4641863955],
+          [11584851.156599585, 3583014.2159552197],
+          [11584844.070043512, 3583118.873425072],
+          [11584770.389997225, 3583160.3257233445],
+          [11584705.427134208, 3583158.697613207],
+          [11584716.064248439, 3582737.033464487],
+        ];
+        const path = new Polyline({
+          paths: [points],
+          spatialReference: view.spatialReference,
+        });
+
+        const tv = new TrackVoyage({
+          view,
+          model: '../../../assets/models/Audi_A6.glb',
+          track: path,
+          dependencies: {
+            StreamLayer,
+            geometryEngine,
+          },
+        });
+        window.tv = tv;
+
+        // 创建graphic
+        const pathGraphic = new Graphic({
+          geometry: path,
+          symbol: {
+            type: 'simple-line',
+            color: 'lightblue',
+            width: '2px',
+            style: 'solid',
+          },
+        });
+        view.graphics.add(pathGraphic);
+
+        addEvents(); // 添加按钮点击事件
+
+        // 添加事件
+        function addEvents() {
+          addClickEvent($('.followingBtn'), followBtnOnClick); // 绑定跟随按钮
+          addClickEvent($('#playBtn'), playBtnOnClick); // 绑定开始停止按钮
+          addClickEvent($('#fastBtn'), fastBtnOnClick); // 绑定加速按钮
+          addClickEvent($('#slowBtn'), slowBtnOnClick); // 绑定减速按钮
+        }
+
+        /**
+         * 获取dom节点。
+         * @param {string} selector - 选择符
+         * @returns {object ｜ undefind} 返回dom节点
+         */
+        function $(selector) {
+          return document.querySelector(selector);
+        }
+
+        /**
+         * 给制定dom添加点击事件。
+         * @param {object} dom - dom节点
+         * @param {object} fn - 事件函数
+         */
+        function addClickEvent(dom, fn) {
+          if (dom) dom.addEventListener('click', fn, false);
+        }
+
+        /**
+         * 跟随按钮点击事件
+         */
+        function followBtnOnClick() {
+          following = !following;
+          const checkbox = document.querySelector('#followingCheckbox');
+          if (checkbox) {
+            checkbox.checked = following;
+          }
+          if (following) {
+            tv.cameraFollowing();
+          } else {
+            tv.stopCameraFollowing();
+          }
+        }
+
+        /**
+         * 开始/停止按钮事件
+         */
+        function playBtnOnClick() {
+          moving = !moving;
+          const btnText = moving ? '停止' : '开始';
+          const btn = $('#playBtn');
+          if (btn) btn.innerText = btnText;
+          if (moving) {
+            tv.play();
+          } else {
+            tv.stop();
+          }
+        }
+
+        /**
+         * 加速按钮点击事件
+         */
+        function fastBtnOnClick() {
+          speed += speedIncrement;
+          console.log(speed + 'm/s');
+          tv.speed = speed;
+        }
+
+        /**
+         * 减速按钮点击事件
+         */
+        function slowBtnOnClick() {
+          if (speed > speedIncrement) {
+            speed -= speedIncrement;
+          }
+          console.log(speed + 'm/s');
+          tv.speed = speed;
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+
+    <div class="btns">
+      <div class="followingBtn">
+        <input
+          type="checkbox"
+          name="followingCheckbox"
+          id="followingCheckbox"
+        />
+        <span>视角跟随</span>
+      </div>
+
+      <button id="playBtn">开始</button>
+      <button id="fastBtn">加速</button>
+      <button id="slowBtn">减速</button>
+    </div>
+  </body>
+</html>
