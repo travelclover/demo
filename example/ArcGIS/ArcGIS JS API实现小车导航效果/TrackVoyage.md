@@ -15,6 +15,7 @@ new TrackVoyage(properties)
 | :---- | :---- | :---- | :---- | 
 | view | __esri.SceneView | 是 | 实例化的地图场景SceneView。[更多详情](https://developers.arcgis.com/javascript/latest/api-reference/esri-views-SceneView.html) |
 | model | String | 否 | 模型地址，支持后缀为gltf和glb的模型。未传值则默认是个球。 |
+| modelSize | Array\<Number\> | 否 | 模型大小，包含三个数字，分别代表[width, depth, height]，单位为米。当只包含一个数字时，表示宽度固定，深度和高度将按照模型比例缩放。默认值为[10]。 |
 | track | __esri.Polyline | 否 | 轨道路径。 |
 | speed | Number | 否 | 模型移动速度。默认值为40。 |
 | dependencies | Object | 是 | 所要用到的ArcGIS API依赖。 |  
@@ -47,7 +48,9 @@ const tv = new TrackVoyage({
 | :---- | :---- | :---- | :---- |  
 | view | __esri.SceneView | 是 | 实例化的地图场景SceneView。[更多详情](https://developers.arcgis.com/javascript/latest/api-reference/esri-views-SceneView.html) |
 | model | String | 是 | 模型地址，为null时，模型为球体。 |
+| modelSize | Array\<Number\> | 否 | 模型大小，包含三个数字，分别代表[width, depth, height]，单位为米。当只包含一个数字时，表示宽度固定，深度和高度将按照模型比例缩放。 |
 | speed | Number | 否 | 模型移动速度，默认值为40。 |
+| moving | Boolean | 是 | 模型是否正在移动。 |
 | track | __esri.Polyline | 否 | 轨道路径。 |
 | trackDensified | __esri.Polyline | 是 | 致密化后的轨道路径。 |
 | layer | __esri.StreamLayer | 是 | 创建的StreamLayer实例。 |
