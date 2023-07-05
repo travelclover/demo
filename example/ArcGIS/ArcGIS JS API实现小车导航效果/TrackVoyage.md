@@ -1,6 +1,7 @@
 # TrackVoyage类说明文档
 
-实现路径导航效果的工具类。
+实现路径导航效果的工具类。  
+![小车导航效果](https://travelclover.github.io/img/2023/07/小车导航效果.gif)
 ***
 ***
 
