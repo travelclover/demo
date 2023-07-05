@@ -21,6 +21,7 @@ class TrackVoyage {
   #updateInterval = 1000 / 24;
   #previousTimeStamp = 0; // 上次更新时间戳
   layer = null; // StreamLayer实例
+  #modelSize = [10]; // 默认模型大小，单位米，默认值为 10。[width, depth, height]
   #speed = 40; // 速度
   #following = false; // 相机是否跟随
   #followingTrackId = null; // 跟随的trackId
@@ -35,6 +36,7 @@ class TrackVoyage {
     const {
       view, // 实例化的地图场景SceneView
       model, // 模型
+      modelSize = [10], // 模型默认大小
       objectIdField = 'OBJECTID', // objectId字段， 默认为 OBJECTID
       trackIdField = 'TRACKID', // trackId字段，默认为 TRACKID
       track = null, // 轨道路径
@@ -45,6 +47,7 @@ class TrackVoyage {
     const { StreamLayer, geometryEngine } = dependencies;
     this.view = view;
     this.model = model;
+    this.#modelSize = modelSize;
     this.objectIdField = objectIdField;
     this.trackIdField = trackIdField;
     this.fields = fields;
@@ -94,6 +97,24 @@ class TrackVoyage {
   }
 
   /**
+   * 设置模型默认大小
+   */
+  set modelSize(size) {
+    this.#modelSize = size;
+    if (this.layer) {
+      this.layer.renderer = this.#generateRenderer();
+    }
+  }
+
+  /**
+   * 获取模型默认大小
+   * @returns {Array<number>} 返回模型大小[width, depth, height]
+   */
+  get modelSize() {
+    return this.#modelSize;
+  }
+
+  /**
    * 获取致密化后的轨道路径
    * @returns {__esri.Polyline} 获取致密化后的轨道路径geometry
    */
@@ -125,12 +146,12 @@ class TrackVoyage {
           ? this.fields
           : [
               {
-                name: 'OBJECTID', // required
+                name: this.objectIdField, // required
                 alias: 'ObjectId',
                 type: 'oid',
               },
               {
-                name: 'TRACKID',
+                name: this.trackIdField,
                 alias: 'TrackId',
                 type: 'long',
               },
@@ -141,54 +162,68 @@ class TrackVoyage {
       geometryType: 'point', // required
       updateInterval: this.#updateInterval,
       popupEnabled: false,
-      renderer: {
-        type: 'simple',
-        symbol: {
-          type: 'point-3d',
-          symbolLayers: [
-            {
-              type: 'object',
-              resource: this.model
-                ? {
-                    href: this.model,
-                  }
-                : {
-                    primitive: 'sphere',
-                  },
-            },
-          ],
-        },
-        // 视觉变量
-        visualVariables: [
+      renderer: this.#generateRenderer(),
+    });
+
+    if (this.view) {
+      view.map.add(this.layer);
+      view.whenLayerView(this.layer).then(() => {
+        window.requestAnimationFrame(this.#updateMoving.bind(this));
+      });
+    }
+  }
+
+  /**
+   * 生成renderer
+   * @returns 返回SimpleRenderer
+   */
+  #generateRenderer() {
+    return {
+      type: 'simple',
+      symbol: {
+        type: 'point-3d',
+        symbolLayers: [
           {
-            type: 'size',
-            axis: 'height',
-            field: 'height',
-            valueUnit: 'meters',
-          },
-          // {
-          //   type: 'size',
-          //   axis: 'width',
-          //   field: 'width',
-          //   valueUnit: 'meters',
-          // },
-          // {
-          //   type: 'size',
-          //   axis: 'depth',
-          //   field: 'depth',
-          //   valueUnit: 'meters',
-          // },
-          {
-            type: 'rotation',
-            axis: 'heading', //
-            field: 'heading',
-            rotationType: 'arithmetic', // geographic：从正北方向顺时针方向旋转  arithmetic：从正东方向逆时针旋转
+            type: 'object',
+            resource: this.model
+              ? {
+                  href: this.model,
+                }
+              : {
+                  primitive: 'sphere',
+                },
           },
         ],
       },
-    });
+      // 视觉变量
+      visualVariables: this.#generateVisualVariables(),
+    };
+  }
 
-    if (this.view) view.map.add(this.layer);
+  /**
+   * 根据模型大小默认配置生成视觉变量配置列表
+   * @returns 返回视觉变量配置列表
+   */
+  #generateVisualVariables() {
+    const modelSize = this.#modelSize;
+    const visualVariables = [
+      {
+        type: 'rotation',
+        axis: 'heading', //
+        field: 'heading',
+        rotationType: 'arithmetic', // geographic：从正北方向顺时针方向旋转  arithmetic：从正东方向逆时针旋转
+      },
+    ];
+    if (modelSize[0]) {
+      visualVariables.push(generateSizeVisualVariable('width'));
+    }
+    if (modelSize[1]) {
+      visualVariables.push(generateSizeVisualVariable('depth'));
+    }
+    if (modelSize[2]) {
+      visualVariables.push(generateSizeVisualVariable('height'));
+    }
+    return visualVariables;
   }
 
   /**
@@ -218,15 +253,16 @@ class TrackVoyage {
       };
       this.#movingIndex = index;
 
+      const attributes = {
+        [this.trackIdField]: 1,
+        [this.objectIdField]: this.#objectIdCounter++,
+      };
+      if (this.#modelSize[0]) attributes.width = this.#modelSize[0];
+      if (this.#modelSize[1]) attributes.depth = this.#modelSize[1];
+      if (this.#modelSize[2]) attributes.height = this.#modelSize[2];
       this.updateFeatures([
         {
-          attributes: {
-            TRACKID: 1,
-            OBJECTID: this.#objectIdCounter++,
-            height: 10,
-            // width: 10,
-            // heading: angle,
-          },
+          attributes: attributes,
           geometry: {
             x: point.x,
             y: point.y,
@@ -290,7 +326,7 @@ class TrackVoyage {
       }
       const point2 = item.geometry;
       const angle = TrackVoyage.calculateAngle(point1, point2);
-      item.attributes.heading = angle;
+      item.attributes.heading = angle || 0;
       lastFeatures.unshift(item);
       this.#features[item.attributes[trackIdField]] = lastFeatures.slice(0, 2);
     });
@@ -343,6 +379,8 @@ class TrackVoyage {
       });
 
       if (this.#followingTrackId) this.#followingTrackId = null;
+
+      this.#features = {};
     }
   }
 
@@ -427,4 +465,18 @@ class TrackVoyage {
     const y = (p1.y - p2.y) / ratio + p2.y;
     return { x, y };
   }
+}
+
+/**
+ * 生成大小视觉变量配置
+ * @param {string} type 类型 width | depth | height
+ * @returns 返回大小视觉变量配置
+ */
+function generateSizeVisualVariable(type) {
+  return {
+    type: 'size',
+    axis: type,
+    field: type,
+    valueUnit: 'meters',
+  };
 }

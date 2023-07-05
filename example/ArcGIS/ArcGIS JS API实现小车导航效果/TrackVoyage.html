@@ -63,6 +63,7 @@
         geometryEngine
       ) => {
         let streamLayer,
+          modelSize = [10, 20, 10], // 模型大小 [width, depth, height]
           following = false, // 是否跟随
           moving = false, // 是否移动
           speed = 20, // 速度 m/s
@@ -116,6 +117,7 @@
           view,
           model: '../../../assets/models/Audi_A6.glb',
           track: path,
+          modelSize: modelSize,
           dependencies: {
             StreamLayer,
             geometryEngine,
@@ -143,6 +145,8 @@
           addClickEvent($('#playBtn'), playBtnOnClick); // 绑定开始停止按钮
           addClickEvent($('#fastBtn'), fastBtnOnClick); // 绑定加速按钮
           addClickEvent($('#slowBtn'), slowBtnOnClick); // 绑定减速按钮
+          addClickEvent($('#scaleUpBtn'), scaleUpBtnOnClick); // 绑定放大模型按钮
+          addClickEvent($('#scaleDownBtn'), scaleDownBtnOnClick); // 绑定缩小模型按钮
         }
 
         /**
@@ -187,6 +191,7 @@
           const btnText = moving ? '停止' : '开始';
           const btn = $('#playBtn');
           if (btn) btn.innerText = btnText;
+          console.log(tv);
           if (moving) {
             tv.play();
           } else {
@@ -213,6 +218,22 @@
           console.log(speed + 'm/s');
           tv.speed = speed;
         }
+
+        /**
+         * 放大模型按钮被点击
+         */
+        function scaleUpBtnOnClick() {
+          modelSize = modelSize.map((item) => item * 2);
+          tv.modelSize = modelSize;
+        }
+
+        /**
+         * 缩小模型按钮被点击
+         */
+        function scaleDownBtnOnClick() {
+          modelSize = modelSize.map((item) => item / 2);
+          tv.modelSize = modelSize;
+        }
       });
     </script>
   </head>
@@ -233,6 +254,8 @@
       <button id="playBtn">开始</button>
       <button id="fastBtn">加速</button>
       <button id="slowBtn">减速</button>
+      <button id="scaleUpBtn">放大模型</button>
+      <button id="scaleDownBtn">缩小模型</button>
     </div>
   </body>
 </html>
