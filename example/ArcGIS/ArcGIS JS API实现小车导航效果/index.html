@@ -39,26 +39,22 @@
     <script src="https://js.arcgis.com/4.27/"></script>
     <script>
       require([
-        'esri/Map',
-        'esri/Basemap',
-        'esri/views/SceneView',
-        'esri/layers/TileLayer',
-        'esri/layers/StreamLayer',
-        'esri/geometry/Point',
-        'esri/geometry/Polyline',
-        'esri/Graphic',
-        'esri/symbols/ObjectSymbol3DLayer',
-        'esri/geometry/geometryEngine',
+        'esri/Map', // 用于创建地图
+        'esri/Basemap', // 用于创建底图
+        'esri/views/SceneView', // 用于创建地图三维场景
+        'esri/layers/TileLayer', // 用于创建底图图层
+        'esri/layers/StreamLayer', // 用于创建表示小车运动的图层
+        'esri/geometry/Polyline', // 用于创建几何线
+        'esri/Graphic', // 用于创建路径图形，方便查看运动轨迹
+        'esri/geometry/geometryEngine', // 几何引擎
       ], (
         Map,
         Basemap,
         SceneView,
         TileLayer,
         StreamLayer,
-        Point,
         Polyline,
         Graphic,
-        ObjectSymbol3DLayer,
         geometryEngine
       ) => {
         let streamLayer,
@@ -72,6 +68,7 @@
           index = 0, // 更新时，路径点列表的索引
           objectIdCounter = 0; // objectId
 
+        // 实例化底图
         const basemap = new Basemap({
           baseLayers: [
             new TileLayer({
@@ -80,22 +77,24 @@
             }),
           ],
         });
+        // 实例化地图
         const map = new Map({
-          basemap: basemap,
+          basemap: basemap, // 底图
         });
 
         const view = new SceneView({
-          container: 'viewDiv',
-          map: map,
+          container: 'viewDiv', // html容器
+          map: map, // 实例化的地图对象
           camera: {
             position: [
-              // 11584773.82107007, 3582723.297225328, 1400.6460111523047,
-              104.06779386534953, 30.61402157268845, 1400.646011153236,
+              104.06779386534953,
+              30.61402157268845,
+              1400.646011153236, // 相机位置
             ],
-            tilt: 0.5015795975933416,
+            tilt: 0.5015795975933416, // 相机倾斜角度
           },
           spatialReference: {
-            wkid: 3857,
+            wkid: 3857, // 空间参考系
           },
         });
 
@@ -111,8 +110,8 @@
           [11584716.064248439, 3582737.033464487],
         ];
         const path = new Polyline({
-          paths: [points],
-          spatialReference: view.spatialReference,
+          paths: [points], // 点坐标集合
+          spatialReference: view.spatialReference, // 空间参考
         });
 
         // 密度插值
@@ -120,15 +119,15 @@
 
         // 创建graphic
         const pathGraphic = new Graphic({
-          geometry: path,
+          geometry: path, // 几何体
           symbol: {
-            type: 'simple-line',
-            color: 'lightblue',
-            width: '2px',
-            style: 'solid',
+            type: 'simple-line', // 符号类型
+            color: 'lightblue', // 线颜色
+            width: '2px', // 线的粗细
+            style: 'solid', // 线的样式
           },
         });
-        view.graphics.add(pathGraphic);
+        view.graphics.add(pathGraphic); // 添加进三维场景中
 
         initStreamLayer(); // 初始化stream图层
         addEvents(); // 添加按钮点击事件
@@ -243,31 +242,37 @@
             updateInterval: updateInterval,
             popupEnabled: false,
             renderer: {
-              type: 'simple',
+              type: 'simple', // 渲染器类型
               symbol: {
-                type: 'web-style',
-                name: 'Audi_A6',
-                styleName: 'EsriRealisticTransportationStyle',
+                type: 'point-3d', // 符号类型
+                symbolLayers: [
+                  {
+                    type: 'object', // ObjectSymbol3DLayer
+                    resource: {
+                      href: '../../../assets/models/Audi_A6.glb', // glb或者gltf模型地址
+                    },
+                  },
+                ],
               },
               // 视觉变量
               visualVariables: [
                 {
-                  type: 'size',
-                  axis: 'height', // width, depth
-                  field: 'height',
-                  valueUnit: 'meters',
+                  type: 'size', // 修改大小的视觉变量
+                  axis: 'height', // height 高，width 宽, depth 深
+                  field: 'height', // 用于修改该视觉变量的字段值
+                  valueUnit: 'meters', // 单位米
                 },
                 {
-                  type: 'rotation',
-                  axis: 'heading', //
-                  field: 'heading',
+                  type: 'rotation', // 修改旋转的视觉变量
+                  axis: 'heading', // heading-符号在水平面上的旋转，tilt-符号在纵向垂直平面上的旋转，roll-符号在横向垂直平面上的旋转
+                  field: 'heading', // 用于修改该视觉变量的字段值
                   rotationType: 'arithmetic', // geographic：从正北方向顺时针方向旋转  arithmetic：从正东方向逆时针旋转
                 },
               ],
             },
           });
 
-          view.map.add(streamLayer);
+          view.map.add(streamLayer); // 将图层添加进地图场景中
           view.whenLayerView(streamLayer).then(() => {
             window.requestAnimationFrame(updateStreamLayer);
           });
@@ -327,19 +332,19 @@
               x: line.paths[0][index + 1][0],
               y: line.paths[0][index + 1][1],
             };
-            const angle = getAngle(point1, point2);
+            const angle = getAngle(point1, point2); // 计算车头偏移角度
             streamLayer.sendMessageToClient({
-              type: 'features',
+              type: 'features', // 类型features表示更新数据，delete删除数据，clear清除所有数据
               features: [
                 {
                   attributes: {
-                    TRACKID: 1,
+                    TRACKID: 1, // 指定的trackIdField字段，同一实体应保持该值一致
                     OBJECTID: objectIdCounter++,
-                    height: 10,
-                    heading: angle,
+                    height: 10, // 设置的模型高度视觉变量的属性值
+                    heading: angle, // 设置模型水平旋转视觉变量的属性值
                   },
                   geometry: {
-                    x: point2.x,
+                    x: point2.x, // 更新到点2的位置
                     y: point2.y,
                   },
                 },
