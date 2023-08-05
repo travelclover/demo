@@ -1,0 +1,668 @@
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>在ArcGIS JS API创建的三维场景中实现扫光效果</title>
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.27/esri/themes/light/main.css"
+    />
+    <script src="./gl-matrix.js"></script>
+    <script src="./earcut@2.2.4.js"></script>
+    <script src="https://js.arcgis.com/4.27/"></script>
+
+    <script type="module">
+      import {
+        circleConfig,
+        buildingConfig,
+        CIRCLE_SEGMENTS_DEFAULT, // 圆分段数默认值
+        CIRCLE_COLOR_DEFAULT, // 圆顶点默认颜色
+      } from './config.js';
+      import {
+        vertexShaderSource, // 建筑物的顶点着色器
+        fragmentShaderSource, // 建筑物的片元着色器
+        circleVertexShaderSource, // 圆的顶点着色器
+        circleFragmentShaderSource, // 圆的片元着色器
+      } from './shader.js';
+      import * as utils from './utils.js';
+
+      require([
+        'esri/core/Accessor',
+        'esri/Map',
+        'esri/Basemap',
+        'esri/views/SceneView',
+        'esri/layers/TileLayer',
+        'esri/geometry/Polyline',
+        'esri/views/3d/externalRenderers',
+        'esri/geometry/support/webMercatorUtils',
+      ], function (
+        Accessor,
+        Map,
+        Basemap,
+        SceneView,
+        TileLayer,
+        Polyline,
+        externalRenderers,
+        webMercatorUtils
+      ) {
+        const basemap = new Basemap({
+          baseLayers: [
+            new TileLayer({
+              url: 'http://map.geoq.cn/arcgis/rest/services/ChinaOnlineStreetPurplishBlue/MapServer',
+              title: 'Basemap',
+            }),
+          ],
+        });
+        const map = new Map({
+          // basemap: basemap,
+          // basemap: 'streets-navigation-vector',
+          basemap: 'streets-night-vector',
+        });
+
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: map,
+          camera: {
+            position: [104.0670487340082, 30.617568490297, 883.9191706748679],
+            tilt: 0.49993155450704874,
+          },
+        });
+        window.view = view;
+        view.on('click', (e) => {
+          console.log(e);
+        });
+
+        const MyExternalRenderer = Accessor.createSubclass({
+          view: null,
+          circleConfig: [], // 扩撒圆配置
+          program: null, // GLSL程序
+          programAttributeVertexPosition: null, // aPosition属性位置索引
+          programAttributeColorPosition: null, // aColor属性位置索引
+          programUniformProjectionMatrix: null, // 投影矩阵位置索引
+          programUniformModelViewMatrix: null, // 模型视图矩阵位置索引
+          localOriginRender: [0, 0, 0], // 渲染坐标系中的原点坐标
+          buildingVertexData: [], // 顶点数据，包含位置和颜色，[x1, y1, z1, r1, g1, b1, x2, y2, z2, r2, g2, b2]
+          buildingIndexData: [], // 索引缓冲数据
+
+          circleProgram: null, // 圆的程序
+          circleAttributeVertexPosition: null, // aPosition属性位置索引
+          circleAttributeColorPosition: null, // aColor属性位置索引
+          circleUniformProjectionMatrix: null, // 投影矩阵位置索引
+          circleUniformModelViewMatrix: null, // 模型视图矩阵位置索引
+          circlesVertexData: [], // 圆的顶点数据
+          circlesIndexData: [], // 圆的顶点索引数据
+
+          constructor(view, circleConfig) {
+            this.view = view;
+            this.circleConfig = circleConfig;
+          },
+
+          setup(context) {
+            this.initShaders(context);
+            this.initData(context);
+
+            // cleanup
+            context.resetWebGLState();
+          },
+
+          render(context) {
+            const gl = context.gl;
+
+            gl.enable(gl.DEPTH_TEST); // 开启深度比较
+            gl.enable(gl.CULL_FACE); // 多边形剔除
+            // gl.disable(gl.BLEND); // 关闭计算的片段颜色值的混合
+            gl.enable(gl.BLEND); // 开启计算的片段颜色值的混合
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // 渲染管线α融合功能单元配置
+
+            this.drawCircle(context); // 绘制圆
+
+            gl.useProgram(this.program);
+
+            // 生存buffer
+            const vboPositions = this.createVertexBuffer(gl, [
+              ...this.buildingVertexData,
+            ]);
+            const vertexDataNum = 6; // 每个顶点的数据量个数 [x, y, z, r, g, b]
+
+            const iboPositions = this.createIndexBuffer(
+              gl,
+              new Uint32Array(this.buildingIndexData)
+            );
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions);
+            gl.enableVertexAttribArray(this.programAttributeVertexPosition);
+
+            const size = 3; //每次迭代3个数据，x,y,z
+            const type = gl.FLOAT; // 数据是32位浮点数
+            const normalize = false; // 不要归一化数据
+            const stride = vertexDataNum * 4; // 指定相邻顶点属性之间的字节偏移量。如果为0，则表示顶点属性是连续存储的。
+            const offset = 0; // 指定顶点属性在缓冲区中的起始偏移量。
+
+            gl.vertexAttribPointer(
+              this.programAttributeVertexPosition,
+              size,
+              type,
+              normalize,
+              stride,
+              offset
+            );
+
+            gl.enableVertexAttribArray(this.programAttributeColorPosition);
+            gl.vertexAttribPointer(
+              this.programAttributeColorPosition,
+              3,
+              type,
+              normalize,
+              stride,
+              3 * 4
+            );
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iboPositions);
+
+            // 设置统一变量数据
+            this.setCommonUniforms(context, this.program);
+
+            gl.drawElements(
+              gl.TRIANGLES, // 指定要渲染的类型
+              // gl.POINTS, // 指定要渲染的类型
+              this.buildingIndexData.length, // 要绘制的三角形的数量
+              gl.UNSIGNED_INT, // 指定元素数组缓冲区中的值的类型
+              0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
+            );
+
+            // 一直绘制
+            externalRenderers.requestRender(view);
+
+            // cleanup
+            context.resetWebGLState();
+          },
+
+          // 绘制扩撒圆
+          drawCircle(context) {
+            const gl = context.gl;
+
+            gl.useProgram(this.circleProgram);
+
+            // 设置统一变量数据
+            this.setCommonUniforms(context, this.circleProgram);
+
+            this.updateCirclesVertexData(); // 更新顶点数据
+
+            const vertexDataNum = 7; // 每个顶点的数据量个数 [x, y, z, r, g, b, a]
+            // 生存buffer
+            const vboPositions = this.createVertexBuffer(gl, [
+              ...this.circlesVertexData,
+            ]);
+            gl.bindBuffer(gl.ARRAY_BUFFER, vboPositions);
+            gl.enableVertexAttribArray(this.circleAttributeVertexPosition);
+
+            gl.vertexAttribPointer(
+              this.circleAttributeVertexPosition,
+              3,
+              gl.FLOAT,
+              false, // normalize
+              vertexDataNum * 4,
+              0
+            );
+
+            gl.enableVertexAttribArray(this.circleAttributeColorPosition);
+            gl.vertexAttribPointer(
+              this.circleAttributeColorPosition,
+              4,
+              gl.FLOAT,
+              false, // normalize
+              vertexDataNum * 4,
+              3 * 4
+            );
+
+            // 索引缓冲
+            const iboPositions = this.createIndexBuffer(
+              gl,
+              new Uint32Array(this.circlesIndexData)
+            );
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iboPositions);
+
+            gl.drawElements(
+              gl.TRIANGLES, // 指定要渲染的类型
+              // gl.POINTS, // 指定要渲染的类型
+              this.circlesIndexData.length, // 要绘制的三角形的数量
+              gl.UNSIGNED_INT, // 指定元素数组缓冲区中的值的类型
+              0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
+            );
+          },
+
+          // 更新圆的顶点数据
+          updateCirclesVertexData() {
+            const circlesVertexData = []; // 圆顶点数据
+
+            this.circleConfig.forEach((item) => {
+              const {
+                color = CIRCLE_COLOR_DEFAULT,
+                vertices,
+                rotationMatrix,
+                translationMatrix,
+              } = item;
+
+              // 计算缩放矩阵
+              const scalingFactor = Math.sin(
+                (new Date().getTime() / 1000) % (Math.PI / 2)
+              );
+              const scaleMatrix = glMatrix.mat4.create();
+              glMatrix.mat4.scale(scaleMatrix, scaleMatrix, [
+                scalingFactor,
+                scalingFactor,
+                1,
+              ]);
+
+              // 将坐标转换为渲染坐标
+              vertices.forEach((vertex, i) => {
+                const v = glMatrix.vec3.fromValues(...vertex);
+                // 缩放矩阵
+                let result = glMatrix.vec3.transformMat4(
+                  glMatrix.vec3.create(),
+                  v,
+                  scaleMatrix
+                );
+                // 旋转矩阵，使面垂直地面朝上
+                result = glMatrix.vec3.transformMat4(
+                  glMatrix.vec3.create(),
+                  result,
+                  rotationMatrix
+                );
+                // 通过变换矩阵转换为渲染坐标点
+                result = glMatrix.vec3.transformMat4(
+                  glMatrix.vec3.create(),
+                  result,
+                  translationMatrix
+                );
+
+                // 再减去前面计算好的局部坐标点，避免精度不够的问题
+                result = glMatrix.vec3.subtract(
+                  result,
+                  result,
+                  glMatrix.vec3.fromValues(...this.localOriginRender)
+                );
+
+                // 顶点颜色
+                let colorArr = color.map((c) => c / 255);
+
+                circlesVertexData.push(
+                  result[0],
+                  result[1],
+                  result[2],
+                  ...colorArr,
+                  i === 0 ? 0 : 1
+                );
+              });
+            });
+
+            this.circlesVertexData = circlesVertexData;
+          },
+
+          // 初始化应用程序所需的所有着色器
+          initShaders(context) {
+            const gl = context.gl;
+
+            const vertexShader = this.createShader(
+              gl,
+              gl.VERTEX_SHADER,
+              vertexShaderSource
+            );
+            const fragmentShader = this.createShader(
+              gl,
+              gl.FRAGMENT_SHADER,
+              fragmentShaderSource
+            );
+            this.program = this.linkProgram(gl, fragmentShader, vertexShader);
+            if (!this.program) {
+              alert('Could not initialise shaders');
+            }
+
+            gl.useProgram(this.program);
+
+            // 查找属性位置
+            this.programAttributeVertexPosition = gl.getAttribLocation(
+              this.program,
+              'aPosition'
+            );
+            gl.enableVertexAttribArray(this.programAttributeVertexPosition); // 启用属性
+            this.programAttributeColorPosition = gl.getAttribLocation(
+              this.program,
+              'aColor'
+            );
+            gl.enableVertexAttribArray(this.programAttributeColorPosition); // 启用属性
+
+            // glsl程序全局变量
+            // 投影矩阵
+            this.programUniformProjectionMatrix = gl.getUniformLocation(
+              this.program,
+              'uProjectionMatrix'
+            );
+            // 模型视图矩阵
+            this.programUniformModelViewMatrix = gl.getUniformLocation(
+              this.program,
+              'uModelViewMatrix'
+            );
+
+            // 初始化圆的着色器
+            this.initCircleShaders(context);
+          },
+
+          // 初始化圆的着色器
+          initCircleShaders(context) {
+            const gl = context.gl;
+
+            const vertexShader = this.createShader(
+              gl,
+              gl.VERTEX_SHADER,
+              circleVertexShaderSource
+            );
+            const fragmentShader = this.createShader(
+              gl,
+              gl.FRAGMENT_SHADER,
+              circleFragmentShaderSource
+            );
+            this.circleProgram = this.linkProgram(
+              gl,
+              fragmentShader,
+              vertexShader
+            );
+            if (!this.circleProgram) {
+              alert('Could not initialise circle shaders');
+            }
+
+            gl.useProgram(this.circleProgram);
+
+            // 查找属性位置
+            this.circleAttributeVertexPosition = gl.getAttribLocation(
+              this.circleProgram,
+              'aPosition'
+            );
+            gl.enableVertexAttribArray(this.circleAttributeVertexPosition); // 启用属性
+            this.circleAttributeColorPosition = gl.getAttribLocation(
+              this.circleProgram,
+              'aColor'
+            );
+            gl.enableVertexAttribArray(this.circleAttributeColorPosition); // 启用属性
+
+            // glsl程序全局变量
+            // 投影矩阵
+            this.circleUniformProjectionMatrix = gl.getUniformLocation(
+              this.circleProgram,
+              'uProjectionMatrix'
+            );
+            // 模型视图矩阵
+            this.circleUniformModelViewMatrix = gl.getUniformLocation(
+              this.circleProgram,
+              'uModelViewMatrix'
+            );
+          },
+
+          // 初始化数据
+          initData(context) {
+            // 设置一个局部原点
+            const point = buildingConfig[0].rings[0][0];
+            const localOriginSR = this.view.spatialReference; // 局部原点空间参考
+            const localOrigin = [point[0], point[1], 0]; // 局部原点坐标
+            // 在渲染坐标中以32位精度计算局部原点
+            this.localOriginRender = externalRenderers.toRenderCoordinates(
+              this.view, // sceneView
+              localOrigin, // 坐标
+              0, // 开始读取坐标的索引
+              localOriginSR, // 空间参考
+              new Float32Array(3), // 对将写入结果的数组的引用
+              0, // 将开始写入坐标的索引
+              1 // 要变换的顶点数
+            ) || [0, 0, 0];
+
+            this.initBuildingVertexData(); // 初始化建筑物顶点数据
+
+            this.initBuildingIndexData(); // 初始化建筑物三角顶点索引数据
+
+            this.initCircleData(); // 初始化扩散圆的数据
+          },
+
+          // 初始化建筑物顶点数据
+          initBuildingVertexData() {
+            // 将所有坐标转换为渲染坐标
+            const buildingPoints = [];
+            buildingConfig.forEach((item) => {
+              const { rings, height } = item;
+              rings[0].forEach((point) => {
+                const topPoint = [point[0], point[1], height]; // 上面点的坐标
+                buildingPoints.push(...topPoint, ...point); // 先上面的点，再下面的点
+              });
+            });
+            let buildingPointsToRender = externalRenderers.toRenderCoordinates(
+              this.view, // sceneView
+              buildingPoints, // 坐标
+              0, // 开始读取坐标的索引
+              this.view.spatialReference, // 空间参考
+              new Float32Array(buildingPoints.length), // 对将写入结果的数组的引用
+              0, // 将开始写入坐标的索引
+              buildingPoints.length / 3 // 要变换的顶点数
+            );
+
+            const buildingVertexData = []; // 顶点相关数据
+            buildingPointsToRender.forEach((number, i) => {
+              const index = i % 3;
+              const value = number - this.localOriginRender[index]; // 减去局部原点坐标
+              buildingVertexData.push(value);
+
+              // 设置顶点颜色
+              let color;
+              if (i % 6 === 5) {
+                color = [21 / 255, 36 / 255, 59 / 255];
+                buildingVertexData.push(...color);
+              } else if (i % 3 === 2) {
+                // color = [122 / 255, 255 / 255, 255 / 255];
+                color = [61 / 255, 153 / 255, 255 / 255];
+                buildingVertexData.push(...color);
+              }
+            });
+            this.buildingVertexData = buildingVertexData;
+          },
+
+          // 初始化建筑物三角顶点索引数据
+          initBuildingIndexData() {
+            const buildingIndexData = []; // 构成三角面的点的索引数组
+            let pointIndex = 0; // 点索引标记
+            buildingConfig.forEach((item, index) => {
+              const points2D = []; // 用于计算建筑物顶部三角形索引的点坐标，不包含z值 [x1, y1, x2, y2, x3, y3]
+
+              const ring = item.rings[0];
+              for (let i = 0; i < ring.length - 1; i++) {
+                const baseIndex = pointIndex + i * 2;
+                const upTriangle = [baseIndex, baseIndex + 1, baseIndex + 2];
+                const downTriangle = [
+                  baseIndex + 1,
+                  baseIndex + 3,
+                  baseIndex + 2,
+                ];
+                buildingIndexData.push(...upTriangle, ...downTriangle);
+
+                points2D.push(ring[i][0], ring[i][1]); // 记录x y坐标
+              }
+              let topIndexArray = earcut(points2D); // 计算的顶面三角形顶点索引值
+              topIndexArray = topIndexArray.map((i) => pointIndex + i * 2); // 将索引值换算为在vertexData大数组中的索引值
+              buildingIndexData.push(...topIndexArray);
+
+              pointIndex += ring.length * 2; // 一个位置，上下两个点
+            });
+            this.buildingIndexData = buildingIndexData;
+          },
+
+          // 初始化扩散圆的数据
+          initCircleData() {
+            const circlesIndexData = []; // 圆的顶点索引数组
+            let indexTag = 0; // 索引标记
+
+            this.circleConfig.forEach((item, index) => {
+              const {
+                center,
+                radius,
+                segments = CIRCLE_SEGMENTS_DEFAULT,
+              } = item;
+              const vertices = utils.calculateCircleVertices(radius, segments); // 圆的坐标点
+              vertices.push(vertices[0]);
+              vertices.unshift([0, 0, 0]);
+              item.vertices = vertices;
+
+              // 计算平移矩阵
+              const centerRender = this.toRenderCoordinates(center); // 将坐标点转换为渲染坐标系的坐标
+              item.translationMatrix = utils.transformationMatrixFromPoints(
+                [0, 0, 0],
+                centerRender
+              );
+              // 计算旋转矩阵，需要垂直于地面的向量以及圆的法向量
+              const v1 = utils.vectorFromPoints([0, 0, 0], [0, 0, 1]);
+              const v2 = utils.vectorFromPoints([0, 0, 0], centerRender);
+              item.rotationMatrix = utils.transformationMatrixFromVectors(
+                v1,
+                v2
+              );
+              // 计算缩放矩阵
+              item.scaleMatrix = glMatrix.mat4.create();
+              glMatrix.mat4.scale(
+                item.scaleMatrix,
+                item.scaleMatrix,
+                [1, 1, 1]
+              );
+
+              // 计算索引
+              for (let i = 0; i < segments; i++) {
+                circlesIndexData.push(
+                  indexTag,
+                  indexTag + i + 1,
+                  indexTag + i + 2
+                );
+              }
+
+              indexTag += vertices.length;
+            });
+            this.circlesIndexData = circlesIndexData;
+          },
+
+          // 创建着色器
+          createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            const success = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+            if (success) {
+              return shader;
+            }
+
+            console.log(gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+          },
+
+          // 链接顶点和片段着色器到GLSL程序
+          linkProgram(gl, fragmentShader, vertexShader) {
+            const shaderProgram = gl.createProgram();
+
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+              return null;
+            }
+
+            return shaderProgram;
+          },
+
+          // 创建顶点缓冲区
+          createVertexBuffer(gl, data) {
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+            const float32Data = new Float32Array(data);
+            gl.bufferData(gl.ARRAY_BUFFER, float32Data, gl.STATIC_DRAW);
+            return buffer;
+          },
+
+          // 创建索引缓冲区
+          createIndexBuffer(gl, data) {
+            const buffer = gl.createBuffer(); // 创建并初始化一个缓冲区
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer); // 将缓冲区绑定到用于元素索引的缓冲区
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data, gl.STATIC_DRAW); // 初始化并创建缓冲区对象的数据存储
+            return buffer;
+          },
+
+          // 设置公用uniforms
+          setCommonUniforms(context, program) {
+            const gl = context.gl;
+
+            let uniformProjectionMatrix = this.programUniformProjectionMatrix; // 默认为建筑物的投影矩阵
+            let uniformModelViewMatrix = this.programUniformModelViewMatrix; // 默认为建筑物的视图矩阵
+
+            if (program === this.circleProgram) {
+              uniformProjectionMatrix = this.circleUniformProjectionMatrix;
+              uniformModelViewMatrix = this.circleUniformModelViewMatrix;
+            }
+
+            // 设置投影矩阵的值
+            gl.uniformMatrix4fv(
+              uniformProjectionMatrix, // 要设置的统一变量的位置，通过 gl.getUniformLocation()方法获取位置
+              false, // 是否转置矩阵，只能是false
+              context.camera.projectionMatrix // 要设置的矩阵值
+            );
+
+            // 设置模型视图矩阵的值
+            const tempMatrix4 = glMatrix.mat4.create();
+            glMatrix.mat4.identity(tempMatrix4); // 将this.tempMatrix4设置为单位矩阵
+            // 通过将视图矩阵平移到局部原点来应用局部原点，这将把视图原点(0,0,0)放到局部原点
+            glMatrix.mat4.translate(
+              tempMatrix4, // 用于接收结果的矩阵
+              tempMatrix4, // 要平移的矩阵
+              this.localOriginRender // 要平移的向量
+            );
+            // 矩阵相乘
+            glMatrix.mat4.multiply(
+              tempMatrix4,
+              context.camera.viewMatrix,
+              tempMatrix4
+            );
+            // 设置统一变量数据
+            gl.uniformMatrix4fv(uniformModelViewMatrix, false, tempMatrix4);
+          },
+
+          // 将空间参考的坐标点转换为渲染坐标行的坐标
+          toRenderCoordinates(point) {
+            return externalRenderers.toRenderCoordinates(
+              this.view, // sceneView
+              point, // 坐标
+              0, // 开始读取坐标的索引
+              this.view.spatialReference, // 空间参考
+              new Float32Array(3), // 对将写入结果的数组的引用
+              0, // 将开始写入坐标的索引
+              point.length / 3 // 要变换的顶点数
+            );
+          },
+        });
+
+        const render = new MyExternalRenderer(view, circleConfig);
+
+        // 注册renderer
+        externalRenderers.add(view, render);
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
