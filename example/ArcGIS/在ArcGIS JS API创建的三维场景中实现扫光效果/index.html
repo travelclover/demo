@@ -34,7 +34,8 @@
       } from './config.js';
       import {
         vertexShaderSource, // 建筑物的顶点着色器
-        fragmentShaderSource, // 建筑物的片元着色器
+        // fragmentShaderSource, // 建筑物的片元着色器
+        generateFragmentShaderSource, // 生成建筑物的片元着色器
         circleVertexShaderSource, // 圆的顶点着色器
         circleFragmentShaderSource, // 圆的片元着色器
       } from './shader.js';
@@ -89,12 +90,15 @@
         const MyExternalRenderer = Accessor.createSubclass({
           view: null,
           circleConfig: [], // 扩撒圆配置
+          localOriginRender: [0, 0, 0], // 渲染坐标系中的原点坐标
+          scalingFactor: 1, // 缩放因子
           program: null, // GLSL程序
           programAttributeVertexPosition: null, // aPosition属性位置索引
           programAttributeColorPosition: null, // aColor属性位置索引
           programUniformProjectionMatrix: null, // 投影矩阵位置索引
           programUniformModelViewMatrix: null, // 模型视图矩阵位置索引
-          localOriginRender: [0, 0, 0], // 渲染坐标系中的原点坐标
+          programUniformLocalOriginRender: null, // 局部原点渲染坐标位置索引
+          programUniformScalingFactor: null, // 圆的缩放因子位置索引
           buildingVertexData: [], // 顶点数据，包含位置和颜色，[x1, y1, z1, r1, g1, b1, x2, y2, z2, r2, g2, b2]
           buildingIndexData: [], // 索引缓冲数据
 
@@ -112,8 +116,8 @@
           },
 
           setup(context) {
-            this.initShaders(context);
             this.initData(context);
+            this.initShaders(context);
 
             // cleanup
             context.resetWebGLState();
@@ -129,7 +133,18 @@
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // 渲染管线α融合功能单元配置
 
             this.drawCircle(context); // 绘制圆
+            this.drawBuilding(context); // 绘制建筑物
 
+            // 一直绘制
+            externalRenderers.requestRender(view);
+
+            // cleanup
+            context.resetWebGLState();
+          },
+
+          // 绘制建筑物
+          drawBuilding(context) {
+            const gl = context.gl;
             gl.useProgram(this.program);
 
             // 生存buffer
@@ -176,6 +191,12 @@
             // 设置统一变量数据
             this.setCommonUniforms(context, this.program);
 
+            gl.uniform3fv(
+              this.programUniformLocalOriginRender,
+              this.localOriginRender
+            );
+            gl.uniform1f(this.programUniformScalingFactor, this.scalingFactor);
+
             gl.drawElements(
               gl.TRIANGLES, // 指定要渲染的类型
               // gl.POINTS, // 指定要渲染的类型
@@ -183,12 +204,6 @@
               gl.UNSIGNED_INT, // 指定元素数组缓冲区中的值的类型
               0 // 指定元素数组缓冲区中的字节偏移量。必须是给定类型大小的有效倍数
             );
-
-            // 一直绘制
-            externalRenderers.requestRender(view);
-
-            // cleanup
-            context.resetWebGLState();
           },
 
           // 绘制扩撒圆
@@ -249,6 +264,12 @@
           updateCirclesVertexData() {
             const circlesVertexData = []; // 圆顶点数据
 
+            // 缩放因子
+            const scalingFactor = Math.sin(
+              (new Date().getTime() / 1000) % (Math.PI / 2)
+            );
+            this.scalingFactor = scalingFactor;
+
             this.circleConfig.forEach((item) => {
               const {
                 color = CIRCLE_COLOR_DEFAULT,
@@ -258,9 +279,6 @@
               } = item;
 
               // 计算缩放矩阵
-              const scalingFactor = Math.sin(
-                (new Date().getTime() / 1000) % (Math.PI / 2)
-              );
               const scaleMatrix = glMatrix.mat4.create();
               glMatrix.mat4.scale(scaleMatrix, scaleMatrix, [
                 scalingFactor,
@@ -317,10 +335,15 @@
           initShaders(context) {
             const gl = context.gl;
 
+            // 建筑物顶点着色器
             const vertexShader = this.createShader(
               gl,
               gl.VERTEX_SHADER,
               vertexShaderSource
+            );
+            // 建筑物片元着色器
+            const fragmentShaderSource = generateFragmentShaderSource(
+              this.circleConfig
             );
             const fragmentShader = this.createShader(
               gl,
@@ -356,6 +379,16 @@
             this.programUniformModelViewMatrix = gl.getUniformLocation(
               this.program,
               'uModelViewMatrix'
+            );
+            // 局部原点渲染坐标
+            this.programUniformLocalOriginRender = gl.getUniformLocation(
+              this.program,
+              'uLocalOriginRender'
+            );
+            // 圆的缩放因子
+            this.programUniformScalingFactor = gl.getUniformLocation(
+              this.program,
+              'uScalingFactor'
             );
 
             // 初始化圆的着色器
@@ -524,6 +557,7 @@
 
               // 计算平移矩阵
               const centerRender = this.toRenderCoordinates(center); // 将坐标点转换为渲染坐标系的坐标
+              item.centerRender = centerRender;
               item.translationMatrix = utils.transformationMatrixFromPoints(
                 [0, 0, 0],
                 centerRender
