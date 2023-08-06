@@ -83,8 +83,13 @@
           },
         });
         window.view = view;
+
+        // 点击事件，记录坐标值
+        const points = [];
         view.on('click', (e) => {
+          points.push([e.mapPoint.x, e.mapPoint.y, 0]);
           console.log(e);
+          console.log(JSON.stringify(points));
         });
 
         const MyExternalRenderer = Accessor.createSubclass({
