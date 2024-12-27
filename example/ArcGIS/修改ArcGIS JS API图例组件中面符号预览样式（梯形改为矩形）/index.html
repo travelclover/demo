@@ -122,9 +122,9 @@
         const layer = new GeoJSONLayer({
           id: name,
           title: name,
-          url: `../../../assets/data/${name}.geojson`,
+          url: `../../../assets/data/${name}.geoJson`,
         });
-        fetch(`../../../assets/data/${name}.geojson`)
+        fetch(`../../../assets/data/${name}.geoJson`)
           .then((res) => res.json())
           .then((geojson) => {
             layer.renderer = new UniqueValueRenderer({
