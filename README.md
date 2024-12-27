@@ -1,4 +1,6 @@
 ## ArcGIS API for JavaScript相关demo
+1. 修改ArcGIS JS API图例组件中面符号预览样式（梯形改为矩形） [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/修改ArcGIS%20JS%20API图例组件中面符号预览样式（梯形改为矩形）/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/修改ArcGIS%20JS%20API图例组件中面符号预览样式（梯形改为矩形）/index.html)]  
+1. 在ArcGIS JS API创建的三维场景中实现扫光效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/在ArcGIS%20JS%20API创建的三维场景中实现扫光效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/在ArcGIS%20JS%20API创建的三维场景中实现扫光效果/index.html)]  
 1. ArcGIS JS API实现小车导航效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现小车导航效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现小车导航效果/index.html)]  
 2. ArcGIS JS API实现图层显隐过渡动画效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现图层显隐过渡动画效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现图层显隐过渡动画效果/index.html)]  
 3. ArcGIS JS API创建自定义图层实现在2D地图中渲染水波纹扩散效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API创建自定义图层实现在2D地图中渲染水波纹扩散效果.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API创建自定义图层实现在2D地图中渲染水波纹扩散效果.html)]  
