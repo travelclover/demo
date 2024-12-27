@@ -1,0 +1,272 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1,user-scalable=no"
+    />
+    <title>修改ArcGIS JS API图例组件中面符号预览样式（梯形改为矩形）</title>
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.31/esri/themes/light/main.css"
+    />
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+      }
+      ul {
+        list-style: none;
+      }
+    </style>
+
+    <script src="https://js.arcgis.com/4.31/"></script>
+  </head>
+
+  <body class="calcite">
+    <div id="viewDiv"></div>
+    <ul
+      style="
+        position: absolute;
+        left: 10px;
+        bottom: 20px;
+        background: #fff;
+        padding: 10px;
+      "
+    >
+      <li>
+        <label for="四川">
+          <input type="checkbox" checked name="四川" id="四川" />
+          <span>四川</span>
+        </label>
+      </li>
+      <li>
+        <label for="重庆">
+          <input type="checkbox" name="重庆" id="重庆" />
+          <span>重庆</span>
+        </label>
+      </li>
+    </ul>
+
+    <button
+      id="btn"
+      style="
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 20px;
+      "
+    >
+      切换图例面样式
+    </button>
+  </body>
+
+  <script>
+    require([
+      'esri/views/MapView',
+      'esri/widgets/Legend',
+      'esri/Map',
+      'esri/layers/GeoJSONLayer',
+      'esri/renderers/UniqueValueRenderer',
+      'esri/symbols/support/symbolUtils',
+    ], (
+      MapView,
+      Legend,
+      Map,
+      GeoJSONLayer,
+      UniqueValueRenderer,
+      symbolUtils
+    ) => {
+      let map, view, legend, isSquareFill;
+      map = new Map({
+        basemap: 'satellite',
+      });
+
+      view = new MapView({
+        container: 'viewDiv',
+        map: map,
+        ui: {
+          components: [],
+        },
+      });
+      window.view = view;
+
+      view.when(() => {
+        legend = new Legend({
+          view: view,
+        });
+        view.ui.add(legend, 'bottom-right');
+
+        // 添加checkbox事件
+        addCheckBoxEvent();
+
+        // 添加切换按钮点击事件
+        addClickEvent();
+
+        // 添加观察器，图层有变化时会更新图例，图例会变为原来的形状，
+        // 添加观察器以便于在图例变化后重新更新预览图
+        addObserver();
+
+        addLayer('四川');
+      });
+
+      // 添加图层
+      function addLayer(name) {
+        const layer = new GeoJSONLayer({
+          id: name,
+          title: name,
+          url: `../../../assets/data/${name}.geojson`,
+        });
+        fetch(`../../../assets/data/${name}.geojson`)
+          .then((res) => res.json())
+          .then((geojson) => {
+            layer.renderer = new UniqueValueRenderer({
+              field: 'name',
+              uniqueValueInfos: geojson.features.map((f) => {
+                return {
+                  label: f.properties.name,
+                  value: f.properties.name,
+                  symbol: {
+                    type: 'simple-fill',
+                    color: [
+                      Math.random() * 255,
+                      Math.random() * 255,
+                      Math.random() * 255,
+                      0.5,
+                    ],
+                    outline: {
+                      width: 0.5,
+                      color: 'white',
+                    },
+                  },
+                };
+              }),
+            });
+          });
+
+        map.add(layer);
+        view.whenLayerView(layer).then(() => {
+          view.goTo(layer.fullExtent); // 缩放到图层区域
+        });
+      }
+
+      // 移除图层
+      function removeLayer(name) {
+        const layer = map.findLayerById(name);
+        map.remove(layer);
+      }
+
+      // 添加checkbox事件
+      function addCheckBoxEvent() {
+        const list = document.querySelectorAll('input[type="checkbox"]');
+        list.forEach((item) => {
+          item.addEventListener('change', function (e) {
+            const checked = e.target.checked;
+            const name = e.target.name;
+            if (checked) {
+              addLayer(name);
+            } else {
+              removeLayer(name);
+            }
+          });
+        });
+      }
+
+      // 添加切换按钮事件
+      function addClickEvent() {
+        const btn = document.querySelector('#btn');
+        btn.addEventListener('click', function () {
+          isSquareFill = !isSquareFill;
+          if (isSquareFill) {
+            const activeLayerInfos =
+              legend.viewModel.activeLayerInfos.toArray();
+            updateLegendSymbolPreview(activeLayerInfos);
+          } else {
+            view.ui.remove(legend);
+            legend = new Legend({
+              view: view,
+            });
+            view.ui.add(legend, 'bottom-right');
+          }
+        });
+      }
+
+      // 添加观察器
+      function addObserver() {
+        const observer = new MutationObserver((mutationsList) => {
+          if (mutationsList[0]?.target === legend.container || !isSquareFill) {
+            return;
+          }
+          const activeLayerInfos = legend.viewModel.activeLayerInfos.toArray();
+          updateLegendSymbolPreview(activeLayerInfos);
+        });
+
+        const config = { childList: true, subtree: true };
+        observer.observe(legend.container, config);
+      }
+
+      function updateLegendSymbolPreview(activeLayerInfos) {
+        activeLayerInfos.forEach((item) => {
+          const { legendElements } = item;
+          legendElements.forEach((legendElement) => {
+            updateByLegendElement(legendElement);
+          });
+        });
+      }
+
+      function updateByLegendElement(legendElement) {
+        if (
+          legendElement.type === 'symbol-table' &&
+          legendElement.infos.length > 0
+        ) {
+          legendElement.infos.forEach((item) => {
+            updateByLegendElement(item);
+          });
+        } else if (legendElement.symbol && legendElement.preview) {
+          const svg = legendElement.preview.querySelector('svg');
+          const symbol = legendElement.symbol;
+          // 判断是否是面图片 并且符合特定的梯形路径
+          if (isSvgPathTrapezoid(svg) || isCIMSymbol(symbol)) {
+            symbolUtils
+              .renderPreviewHTML(symbol, {
+                // size: 40,
+                symbolConfig: {
+                  isSquareFill: isSquareFill, // 设置为矩形
+                },
+              })
+              .then((res) => {
+                const parent = legendElement.preview.parentElement; // 获取父级节点
+                parent?.replaceChildren(); // 清除旧的
+                parent?.appendChild(res); // 添加新的
+              });
+          }
+        }
+      }
+
+      // 获取svg的路径属性d
+      function getSvgPathD(svg) {
+        const path = svg?.querySelector('path');
+        return path?.getAttribute('d');
+      }
+
+      // 判断svg路径是否是梯形
+      function isSvgPathTrapezoid(svg) {
+        const pathD = getSvgPathD(svg);
+        return pathD === 'M -10,-10 L 10,0 L 10,10 L -10,10 L -10,-10 Z';
+      }
+
+      // 判断是否是cim类型的symbol
+      function isCIMSymbol(symbol) {
+        return symbol.type === 'cim';
+      }
+      //
+    });
+  </script>
+</html>
