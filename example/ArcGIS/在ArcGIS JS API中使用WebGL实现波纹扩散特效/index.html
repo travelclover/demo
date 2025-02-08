@@ -1,0 +1,567 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1,user-scalable=no"
+    />
+    <title>在ArcGIS JS API中使用WebGL实现波纹扩散特效</title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.31/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.31/"></script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/geometry/Point',
+        'esri/views/3d/webgl/RenderNode',
+        'esri/views/3d/webgl',
+        'https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.3.2/gl-matrix-min.js',
+      ], function (Map, SceneView, Point, RenderNode, webgl, glMatrix) {
+        // 设置矩阵数组类型为Float64Array(双精度浮点数),提供更高的数值精度
+        glMatrix.glMatrix.setMatrixArrayType(Float64Array);
+
+        // 创建地图场景
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: new Map({
+            basemap: 'satellite', // 影像底图
+            ground: 'world-elevation', // 世界高程
+          }),
+        });
+        let point = null; // 点
+        view.on('click', (e) => {
+          console.log(e);
+        });
+        window.view = view;
+
+        view.when(() => {
+          point = new Point({
+            latitude: 30.688679767265377,
+            longitude: 103.29189644934428,
+            z: 1260,
+            spatialReference: view.spatialReference,
+          });
+
+          view.goTo({
+            target: point,
+            zoom: 14,
+          });
+
+          // 初始化自定义渲染节点
+          const waveRenderNode = new WaveRenderNode({ view });
+        });
+
+        const webUtils = {
+          // 创建着色器
+          createShader: function (gl, src, type) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, src);
+            gl.compileShader(shader);
+            return shader;
+          },
+          // 创建程序
+          createProgram: function (gl, vsSource, fsSource) {
+            const program = gl.createProgram();
+            if (!program) {
+              console.error('Failed to create program');
+            }
+            const vertexShader = webUtils.createShader(
+              gl,
+              vsSource,
+              gl.VERTEX_SHADER
+            );
+            const fragmentShader = webUtils.createShader(
+              gl,
+              fsSource,
+              gl.FRAGMENT_SHADER
+            );
+            gl.attachShader(program, vertexShader);
+            gl.attachShader(program, fragmentShader);
+            gl.linkProgram(program);
+            const success = gl.getProgramParameter(program, gl.LINK_STATUS);
+            if (!success) {
+              // covenience console output to help debugging shader code
+              console.error(`Failed to link program:
+                error ${gl.getError()},
+                info log: ${gl.getProgramInfoLog(program)},
+                vertex: ${gl.getShaderParameter(
+                  vertexShader,
+                  gl.COMPILE_STATUS
+                )},
+                fragment: ${gl.getShaderParameter(
+                  fragmentShader,
+                  gl.COMPILE_STATUS
+                )}
+                vertex info log: ${gl.getShaderInfoLog(vertexShader)},
+                fragment info log: ${gl.getShaderInfoLog(fragmentShader)}
+              `);
+            }
+            return program;
+          },
+          // 创建缓冲区
+          createBuffer: function (gl, target, data, location, size) {
+            const buffer = gl.createBuffer();
+            gl.bindBuffer(target, buffer);
+            gl.bufferData(target, data, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(location);
+            gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
+            return buffer;
+          },
+        };
+
+        const WaveRenderNode = RenderNode.createSubclass({
+          // 波纹效果参数
+          duration: 1800, // 波纹扩散时间, 毫秒
+          distance: 4000, // 波纹最大距离, 单位米
+          drawDistance: 1, // 圆的绘制距离
+          currentTime: performance.now(),
+
+          // WebGL 相关对象
+          program: null,
+          vao: null, // 顶点数组对象
+          framebuffer: null, // 帧缓冲区对象
+          viewPort: null,
+          localOriginRender: null, // 渲染坐标系的局部坐标
+
+          // 矩阵相关
+          viewMat: glMatrix.mat4.create(), // 视图矩阵
+          projMat: glMatrix.mat4.create(), // 投影矩阵
+          viewProjMat: glMatrix.mat4.create(), // 视图投影矩阵
+          viewProjMat_invert: glMatrix.mat4.create(), // 视图投影矩阵的逆矩阵
+          projMat_invert: glMatrix.mat4.create(), // 投影矩阵的逆矩阵
+          transAt_invert: glMatrix.mat4.create(), // 变换矩阵的逆矩阵
+          _1_WidthAndHeight: glMatrix.vec2.create(), // 1 / 屏幕宽高比
+
+          // 临时计算变量
+          tempVec3_1: glMatrix.vec3.create(),
+          tempVec3_2: glMatrix.vec3.create(),
+          tempVec4_1: glMatrix.vec4.create(),
+          tempMat4: glMatrix.mat4.create(),
+
+          // 着色器中变量位置location
+          u_ScreenRadio_ScreenOffset: null,
+          u_1_WidthAndHeight: null,
+          u_distance: null,
+          u_InvertMat: null,
+          u_offset: null,
+          u_DepthTex: null,
+          a_position: null,
+
+          constructor: function (props) {
+            // 定义渲染节点在渲染管线中的位置
+            this.consumes = { required: ['transparent-color'] };
+            this.produces = 'transparent-color';
+            this.view = props.view;
+            this.initData();
+          },
+
+          initialize() {
+            const gl = this.gl;
+            this.viewPort = gl.getParameter(gl.VIEWPORT);
+            const width = this.viewPort[2];
+            const height = this.viewPort[3];
+
+            this.initProgram(gl); // 初始化着色器程序
+            this.getLocations(gl); // 获取着色器程序中的变量位置
+            this.createBuffers(gl); // 创建顶点数组并绑定数据
+            this.createFramebufferWithDepthTexture(gl, width, height); // 创建深度纹理和帧缓冲区
+          },
+
+          // 初始化着色器程序
+          initProgram(gl) {
+            // 顶点着色器代码
+            const vshader = `#version 300 es
+              in vec2 a_Position;
+              uniform vec4 u_ScreenRadio_ScreenOffset;
+
+              void main() {
+                gl_Position = vec4(
+                  a_Position * u_ScreenRadio_ScreenOffset.zw + u_ScreenRadio_ScreenOffset.xy,
+                  1.0,
+                  1.0
+                );
+              }
+            `;
+
+            // 片元着色器代码
+            const fshader = `#version 300 es
+              #define PI_0Pot5 0.1591549430918849
+              precision mediump float;
+
+              uniform float u_distance;
+              uniform float u_offset;
+              uniform vec2 u_1_WidthAndHeight;
+              // uniform vec4 u_Color;
+              uniform mat4 u_InvertMat;
+              uniform sampler2D u_DepthTex;
+
+              out lowp vec4 FragColor;
+
+              void main() {
+                vec2 uv_screen = gl_FragCoord.xy * u_1_WidthAndHeight;
+                vec4 pos = vec4(uv_screen * 2.0 - 1.0, texture(u_DepthTex, uv_screen).r * 2.0 - 1.0, 1.0);
+
+                pos = u_InvertMat * pos; // 乘以逆矩阵，计算出渲染坐标系中的三维坐标
+                pos.xyz /= pos.w; // 将齐次坐标转换为标准的三维坐标
+
+                float lightDistance = length(pos.xy);
+                if (lightDistance > u_distance) {
+                  discard;
+                }
+
+                float percent = lightDistance / u_distance;
+                float alpha = mod(percent + 1.0 - u_offset, 1.0);
+
+                FragColor = vec4(1.0, 0.0, 0.0, alpha);
+                // FragColor = vec4(percent, 0.0, 0.0, 1.0);
+              }
+            `;
+
+            this.program = webUtils.createProgram(gl, vshader, fshader);
+          },
+
+          // 获取着色器程序中的变量位置
+          getLocations(gl) {
+            this.u_ScreenRadio_ScreenOffset = gl.getUniformLocation(
+              this.program,
+              'u_ScreenRadio_ScreenOffset'
+            );
+            this.u_1_WidthAndHeight = gl.getUniformLocation(
+              this.program,
+              'u_1_WidthAndHeight'
+            );
+            this.u_distance = gl.getUniformLocation(this.program, 'u_distance');
+            this.u_InvertMat = gl.getUniformLocation(
+              this.program,
+              'u_InvertMat'
+            );
+            this.u_offset = gl.getUniformLocation(this.program, 'u_offset');
+            this.u_DepthTex = gl.getUniformLocation(this.program, 'u_DepthTex');
+            this.a_position = gl.getAttribLocation(this.program, 'a_Position');
+          },
+
+          createBuffers(gl) {
+            // 创建顶点数组对象
+            this.vao = gl.createVertexArray();
+            gl.bindVertexArray(this.vao);
+
+            // 创建并设置顶点位置缓冲区
+            const circleVertext = this.createCircleData();
+            const positionBuffer = webUtils.createBuffer(
+              gl,
+              gl.ARRAY_BUFFER,
+              new Float32Array(circleVertext),
+              this.a_position,
+              2
+            );
+
+            // 解绑VAO
+            gl.bindVertexArray(null);
+          },
+
+          // 创建圆的顶点数据
+          createCircleData() {
+            const circleVertexCount = 16; // 圆的顶点数量
+            const angle = (2 * Math.PI) / circleVertexCount; // 计算每个顶点的角度增量
+            const circleRadius = 1 / Math.cos(angle * 0.5); // 计算半径
+            this.drawDistance = this.distance * circleRadius; // 计算圆的绘制距离
+            const circleVertext = [];
+            for (let i = 0; i < circleVertexCount; i++) {
+              const nextIndex = i + 1;
+              const currentSin = Math.sin(angle * i); // 计算当前顶点的sin值
+              const nextSin = Math.sin(angle * nextIndex); // 计算下个顶点的sin值
+              const currentCos = Math.cos(angle * i); // 计算当前顶点的cos值
+              const nextCos = Math.cos(angle * nextIndex); // 计算下个顶点的cos值
+              // 构成圆的三角面的三个顶点数据
+              circleVertext.push(
+                0,
+                0,
+                currentCos * circleRadius,
+                currentSin * circleRadius,
+                nextCos * circleRadius,
+                nextSin * circleRadius
+              );
+            }
+            return circleVertext;
+          },
+
+          // 创建深度纹理和帧缓冲区
+          createFramebufferWithDepthTexture(gl, width, height) {
+            this.framebuffer = gl.createFramebuffer(); // 创建帧缓冲区
+            gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
+
+            this.depthTexture = gl.createTexture(); // 创建深度纹理
+            gl.bindTexture(gl.TEXTURE_2D, this.depthTexture);
+            gl.texImage2D(
+              gl.TEXTURE_2D,
+              0,
+              gl.DEPTH24_STENCIL8,
+              width,
+              height,
+              0,
+              gl.DEPTH_STENCIL,
+              gl.UNSIGNED_INT_24_8,
+              null
+            );
+            // 设置纹理参数
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(
+              gl.TEXTURE_2D,
+              gl.TEXTURE_WRAP_S,
+              gl.CLAMP_TO_EDGE
+            );
+            gl.texParameteri(
+              gl.TEXTURE_2D,
+              gl.TEXTURE_WRAP_T,
+              gl.CLAMP_TO_EDGE
+            );
+            // 将深度纹理附加到帧缓冲区
+            gl.framebufferTexture2D(
+              gl.DRAW_FRAMEBUFFER,
+              gl.DEPTH_STENCIL_ATTACHMENT,
+              gl.TEXTURE_2D,
+              this.depthTexture,
+              0 // mip level
+            );
+            // 解绑帧缓冲区
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          },
+
+          initData() {
+            const localOriginSR = this.view.spatialReference;
+            const coord = [point.x, point.y, point.z]; // 点坐标
+            this.localOriginRender = webgl.toRenderCoordinates(
+              this.view,
+              coord,
+              0,
+              localOriginSR,
+              new Float32Array(3),
+              0,
+              1
+            );
+
+            // 计算从局部笛卡尔坐标到虚拟世界坐标系的变换矩阵
+            const transAt = glMatrix.mat4.create();
+            webgl.renderCoordinateTransformAt(
+              view,
+              coord,
+              this.view.spatialReference,
+              transAt
+            );
+
+            // 计算变换矩阵的逆矩阵
+            glMatrix.mat4.invert(this.transAt_invert, transAt);
+          },
+
+          render(inputs) {
+            const gl = this.gl;
+            // 判断viewport是否变化
+            this.checkViewPortChange(gl);
+
+            // 更新深度纹理
+            this.updateDepthTexture(gl, inputs);
+
+            // 保存当前状态
+            const vbo = gl.getParameter(gl.VERTEX_ARRAY_BINDING); // 获取当前绑定的顶点数组对象
+            const dBlend = gl.getParameter(gl.BLEND); // 获取是否启用混合的状态
+            const dDepthMask = gl.getParameter(gl.DEPTH_WRITEMASK); // 获取当前 depthMask 状态
+            const dSrcRGB = gl.getParameter(gl.BLEND_SRC_RGB); // 获取当前的源 RGB 混合因子
+            const dDstRGB = gl.getParameter(gl.BLEND_DST_RGB); // 获取当前的目标 RGB 混合因子
+            const dStencil = gl.getParameter(gl.STENCIL_TEST); // 获取当前的模板测试状态，返回true 或 false
+            const dDepthText = gl.getParameter(gl.DEPTH_TEST); // 获取深度测试参数
+
+            // 修改webgl相关状态
+            gl.depthMask(false); // 关闭深度写入
+            gl.disable(gl.STENCIL_TEST); // 关闭模板测试
+            gl.bindVertexArray(null); // 清除当前的 顶点数组对象（VAO） 绑定
+            gl.enable(gl.BLEND); // 启用混合状态
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // 设置混合因子
+            gl.disable(gl.DEPTH_TEST); // 禁用深度测试
+
+            gl.useProgram(this.program);
+
+            this.updateState(gl); // 更新状态
+
+            // 激活纹理单元0
+            gl.activeTexture(gl.TEXTURE0);
+            // 绑定纹理
+            gl.bindTexture(gl.TEXTURE_2D, this.depthTexture);
+
+            gl.bindVertexArray(this.vao);
+
+            // 将视图矩阵与坐标点相乘，计算坐标点在视图坐标系下的位置
+            // 将 glMatrix.vec3.create()创建的单位向量 通过矩阵 this.viewMat(相机的视图矩阵) 进行变换，并将结果存储在 tempVec3_1 中
+            glMatrix.vec3.transformMat4(
+              this.tempVec3_1,
+              this.localOriginRender,
+              this.viewMat
+            );
+            this.tempVec3_2[0] = this.tempVec3_1[0] + this.drawDistance;
+            this.tempVec3_2[1] = this.tempVec3_1[1] + this.drawDistance;
+            this.tempVec3_2[2] = this.tempVec3_1[2];
+
+            // 计算坐标点在屏幕坐标系下的位置
+            glMatrix.vec3.transformMat4(
+              this.tempVec3_1,
+              this.tempVec3_1,
+              this.projMat
+            );
+            // 计算加上drawDistance后的坐标点在屏幕坐标系下的位置
+            glMatrix.vec3.transformMat4(
+              this.tempVec3_2,
+              this.tempVec3_2,
+              this.projMat
+            );
+
+            this.tempVec4_1[0] = this.tempVec3_1[0]; // 圆心点在屏幕坐标系下的x坐标
+            this.tempVec4_1[1] = this.tempVec3_1[1]; // 圆心点在屏幕坐标系下的y坐标
+            this.tempVec4_1[2] = this.tempVec3_2[0] - this.tempVec3_1[0]; // 屏幕坐标系下圆边缘到圆心点位置的x坐标差，表示x方向的缩放
+            this.tempVec4_1[3] = this.tempVec3_2[1] - this.tempVec3_1[1]; // 屏幕坐标系下圆边缘到圆心点位置的y坐标差，表示y方向的缩放
+            // 设置 u_ScreenRadio_ScreenOffset 数据
+            gl.uniform4fv(this.u_ScreenRadio_ScreenOffset, this.tempVec4_1);
+
+            gl.uniform1f(this.u_distance, this.distance); // 设置 u_distance的值
+            gl.uniform1f(
+              this.u_offset,
+              (performance.now() % this.duration) / this.duration
+            );
+            gl.uniform2fv(this.u_1_WidthAndHeight, this._1_WidthAndHeight); // 设置 u_1_WidthAndHeight的值
+            // 将视图投影矩阵的逆矩阵和变换矩阵的逆矩阵相乘
+            glMatrix.mat4.multiply(
+              this.tempMat4,
+              this.transAt_invert,
+              this.viewProjMat_invert
+            );
+            gl.uniformMatrix4fv(this.u_InvertMat, false, this.tempMat4);
+
+            gl.drawArrays(gl.TRIANGLES, 0, 16 * 3);
+
+            // 恢复操作
+            if (dBlend) {
+              gl.enable(gl.BLEND);
+            } else {
+              gl.disable(gl.BLEND);
+            }
+            gl.depthMask(dDepthMask);
+            gl.blendFunc(dSrcRGB, dDstRGB);
+            gl.bindVertexArray(vbo);
+            if (dStencil) gl.enable(gl.STENCIL_TEST);
+            if (dDepthText) gl.enable(gl.DEPTH_TEST);
+
+            this.requestRender();
+
+            return inputs[0];
+          },
+
+          // 监听viewport变化，变化时更新深度纹理尺寸
+          checkViewPortChange(gl) {
+            const viewPort = gl.getParameter(gl.VIEWPORT);
+            if (
+              viewPort[2] !== this.viewPort[2] ||
+              viewPort[3] !== this.viewPort[3]
+            ) {
+              this.viewPort = viewPort;
+              const dTexture = gl.getParameter(gl.TEXTURE_BINDING_2D); // 获取当前绑定的2D纹理对象
+              gl.bindTexture(gl.TEXTURE_2D, this.depthTexture); // 将指定的纹理对象绑定到2D纹理目标上
+              // 为当前绑定的纹理对象分配内存
+              gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.DEPTH24_STENCIL8,
+                viewPort[2],
+                viewPort[3],
+                0,
+                gl.DEPTH_STENCIL,
+                gl.UNSIGNED_INT_24_8,
+                null
+              );
+              gl.bindTexture(gl.TEXTURE_2D, dTexture); // 恢复之前的绑定
+            }
+          },
+
+          // 更新深度纹理
+          updateDepthTexture(gl, inputs) {
+            const transparentColorFbo = inputs[0];
+            const fbo_gl = transparentColorFbo.fbo.glName;
+            const dReadFbo = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING); // 获取当前绑定的读取帧缓冲对象
+            const dDrawFbo = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING); // 获取当前绑定的绘制帧缓冲对象
+
+            gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo_gl); // 绑定读取的帧缓冲区对象
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.framebuffer); // 绑定绘制的帧缓冲区对象
+            // 将像素块从读取的帧缓冲区传输到绘制帧缓冲区
+            gl.blitFramebuffer(
+              0,
+              0,
+              this.viewPort[2],
+              this.viewPort[3],
+              0,
+              0,
+              this.viewPort[2],
+              this.viewPort[3],
+              gl.DEPTH_BUFFER_BIT,
+              gl.NEAREST
+            );
+
+            gl.bindFramebuffer(gl.READ_FRAMEBUFFER, dReadFbo); // 恢复读取的帧缓冲区
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, dDrawFbo); // 恢复绘制的帧缓冲区
+          },
+
+          // 更新矩阵等数据
+          updateState(gl) {
+            this.currentTime = performance.now();
+            glMatrix.vec2.set(
+              this._1_WidthAndHeight,
+              this.viewPort[2],
+              this.viewPort[3]
+            );
+            glMatrix.vec2.inverse(
+              this._1_WidthAndHeight,
+              this._1_WidthAndHeight
+            );
+            glMatrix.mat4.copy(this.viewMat, this.camera.viewMatrix); // 获取相机的视图矩阵
+            glMatrix.mat4.copy(this.projMat, this.camera.projectionMatrix); // 获取相机的投影矩阵
+
+            // 计算视图投影矩阵
+            glMatrix.mat4.multiply(
+              this.viewProjMat,
+              this.projMat,
+              this.viewMat
+            );
+            glMatrix.mat4.invert(this.viewProjMat_invert, this.viewProjMat); // 计算视图投影矩阵的逆矩阵
+            // glMatrix.mat4.invert(this.projMat_invert, this.projMat); // 相机的投影矩阵的逆矩阵
+          },
+
+          // 销毁
+          destroy() {
+            if (this.program) {
+              this.gl?.deleteProgram(this.program);
+            }
+            if (this.vao) {
+              this.gl?.deleteVertexArray(this.vao);
+            }
+          },
+        });
+      });
+    </script>
+  </body>
+</html>
