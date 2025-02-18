@@ -1,0 +1,193 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API之ExtrudeSymbol3DLayer实现白膜效果</title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.31/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.31/"></script>
+    <script src="./buildingData.js"></script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/Graphic',
+        'esri/views/SceneView',
+        'esri/layers/FeatureLayer',
+        'esri/geometry/Polygon',
+        'esri/widgets/Legend',
+        'esri/renderers/UniqueValueRenderer',
+        'esri/symbols/PolygonSymbol3D',
+        'esri/symbols/ExtrudeSymbol3DLayer',
+      ], (
+        Map,
+        Graphic,
+        SceneView,
+        FeatureLayer,
+        Polygon,
+        Legend,
+        UniqueValueRenderer,
+        PolygonSymbol3D,
+        ExtrudeSymbol3DLayer
+      ) => {
+        // 获取symbol
+        function createSymbol(color) {
+          return new PolygonSymbol3D({
+            symbolLayers: [
+              new ExtrudeSymbol3DLayer({
+                material: {
+                  color: color,
+                },
+                edges: {
+                  type: 'solid',
+                  color: '#999',
+                  size: 0.5,
+                },
+              }),
+            ],
+          });
+        }
+
+        // 创建layer
+        function createLayer() {
+          const graphics = buildingData.map(
+            (item) =>
+              new Graphic({
+                geometry: new Polygon(item.geometry),
+                attributes: item.attributes,
+              })
+          );
+          const renderer = createRenderer();
+
+          const layerOptions = {
+            fields: [
+              { name: 'OBJECTID', alias: 'OBJECTID', type: 'oid' },
+              { name: 'TYPE', alias: '类型', type: 'string' },
+              { name: 'HEIGHT', alias: '高度', type: 'integer' },
+            ],
+            objectIdField: 'OBJECTID',
+            geometryType: 'polygon',
+            spatialReference: { wkid: 4326 },
+            source: graphics,
+            elevationInfo: {
+              mode: 'on-the-ground',
+            },
+            renderer: renderer,
+            popupTemplate: {
+              title: '{TYPE}',
+              content: [
+                {
+                  type: 'fields',
+                  fieldInfos: [
+                    {
+                      fieldName: 'TYPE',
+                      label: 'Type',
+                    },
+                    {
+                      fieldName: 'HEIGHT',
+                      label: 'Height',
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+          return new FeatureLayer(layerOptions);
+        }
+
+        // 创建renderer
+        function createRenderer() {
+          const rendererOptions = {
+            type: 'unique-value',
+            defaultSymbol: createSymbol('#FFFFFF'),
+            defaultLabel: 'Other',
+            field: 'TYPE',
+            uniqueValueInfos: [
+              {
+                value: '住宅',
+                symbol: createSymbol('#A7C636'),
+                label: '住宅',
+              },
+              {
+                value: '公共/政府',
+                symbol: createSymbol('#3f51b5'),
+                label: '公共/政府',
+              },
+              {
+                value: '商业',
+                symbol: createSymbol('#FC921F'),
+                label: '商业',
+              },
+              {
+                value: '酒店/旅馆',
+                symbol: createSymbol('#ED5151'),
+                label: '酒店/旅馆',
+              },
+              {
+                value: '公寓出租',
+                symbol: createSymbol('#149ECE'),
+                label: '公寓出租',
+              },
+            ],
+            // 视觉变量设置
+            visualVariables: [
+              {
+                type: 'size', // 类型为大小视觉变量
+                field: 'HEIGHT', // 根据属性中的哪个字段来设置拉伸的高度值
+              },
+            ],
+          };
+          return new UniqueValueRenderer(rendererOptions);
+        }
+
+        function init() {
+          const view = new SceneView({
+            container: 'viewDiv',
+            map: new Map({
+              basemap: 'satellite', // 影像底图
+              ground: 'world-elevation', // 世界高程
+            }),
+            camera: {
+              position: [-75.09519011, 38.32524201, 682.98652],
+              heading: 53.86,
+              tilt: 48.52,
+            },
+          });
+
+          const buildingsLayer = createLayer();
+
+          view.map.add(buildingsLayer);
+
+          const legend = new Legend({
+            view: view,
+          });
+
+          view.ui.add(legend, 'bottom-right');
+        }
+
+        init();
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
