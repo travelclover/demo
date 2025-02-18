@@ -1,3 +1,8 @@
 {
-  "liveServer.settings.port": 5501
+  "liveServer.settings.port": 5501,
+  "fileheader.customMade": {
+    "Description": "",
+    "Author": "travelclover(travelclover@163.com)",
+    "Date": "Do not edit"
+  },
 }
