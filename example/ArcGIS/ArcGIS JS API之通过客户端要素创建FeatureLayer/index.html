@@ -1,0 +1,113 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <title>ArcGIS JS API之通过客户端要素创建FeatureLayer</title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.31/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.31/"></script>
+    <script src="./buildingData.js"></script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+
+    <script>
+      require([
+        'esri/Map',
+        'esri/Graphic',
+        'esri/views/SceneView',
+        'esri/layers/FeatureLayer',
+        'esri/geometry/Polygon',
+      ], (Map, Graphic, SceneView, FeatureLayer, Polygon) => {
+        // 创建layer
+        function createLayer() {
+          const graphics = buildingData.map(
+            (item) =>
+              new Graphic({
+                geometry: new Polygon(item.geometry),
+                attributes: item.attributes,
+              })
+          );
+
+          const layerOptions = {
+            fields: [
+              { name: 'OBJECTID', alias: 'OBJECTID', type: 'oid' },
+              { name: 'TYPE', alias: '类型', type: 'string' },
+              { name: 'HEIGHT', alias: '高度', type: 'integer' },
+            ],
+            objectIdField: 'OBJECTID',
+            geometryType: 'polygon',
+            source: graphics,
+            elevationInfo: {
+              mode: 'on-the-ground',
+            },
+            renderer: {
+              type: 'simple',
+              symbol: {
+                type: 'simple-fill',
+                color: [255, 0, 0, 0.5],
+              },
+            },
+            popupTemplate: {
+              title: '{TYPE}',
+              content: [
+                {
+                  type: 'fields',
+                  fieldInfos: [
+                    {
+                      fieldName: 'TYPE',
+                      label: 'Type',
+                    },
+                    {
+                      fieldName: 'HEIGHT',
+                      label: 'Height',
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+          return new FeatureLayer(layerOptions);
+        }
+
+        function init() {
+          const view = new SceneView({
+            container: 'viewDiv',
+            map: new Map({
+              basemap: 'topo',
+              ground: 'world-elevation', // 世界高程
+            }),
+          });
+
+          const layer = createLayer();
+
+          view.map.add(layer);
+
+          view.whenLayerView(layer).then(() => {
+            view.goTo(layer.fullExtent);
+          });
+        }
+
+        init();
+      });
+    </script>
+  </head>
+
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
