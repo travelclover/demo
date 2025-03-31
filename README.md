@@ -1,4 +1,6 @@
 ## ArcGIS API for JavaScript相关demo
+1. 在ArcGIS JS API中使用Three.js加载动画模型 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/在ArcGIS%20JS%20API中使用Three.js加载动画模型/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/在ArcGIS%20JS%20API中使用Three.js加载动画模型/index.html)]  
+1. 在ArcGIS JS API中使用WebGL实现波纹扩散特效 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/在ArcGIS%20JS%20API中使用WebGL实现波纹扩散特效/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/在ArcGIS%20JS%20API中使用WebGL实现波纹扩散特效/index.html)]  
 1. 修改ArcGIS JS API图例组件中面符号预览样式（梯形改为矩形） [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/修改ArcGIS%20JS%20API图例组件中面符号预览样式（梯形改为矩形）/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/修改ArcGIS%20JS%20API图例组件中面符号预览样式（梯形改为矩形）/index.html)]  
 1. 在ArcGIS JS API创建的三维场景中实现扫光效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/在ArcGIS%20JS%20API创建的三维场景中实现扫光效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/在ArcGIS%20JS%20API创建的三维场景中实现扫光效果/index.html)]  
 1. ArcGIS JS API实现小车导航效果 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现小车导航效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现小车导航效果/index.html)]  

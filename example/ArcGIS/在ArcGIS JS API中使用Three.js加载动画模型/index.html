@@ -1,0 +1,292 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="initial-scale=1, maximum-scale=1,user-scalable=no"
+    />
+    <title>在ArcGIS JS API中使用Three.js加载动画模型</title>
+
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.30/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.30/"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.173.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.173.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <style>
+      html,
+      body,
+      #viewDiv {
+        padding: 0;
+        margin: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+      require([
+        'esri/Graphic',
+        'esri/Map',
+        'esri/views/SceneView',
+        'esri/views/3d/webgl/RenderNode',
+        'esri/geometry/Point',
+        'esri/views/3d/webgl',
+        'https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.3.2/gl-matrix-min.js',
+      ], function (
+        Graphic,
+        Map,
+        SceneView,
+        RenderNode,
+        Point,
+        webgl,
+        glMatrix
+      ) {
+        const view = new SceneView({
+          container: 'viewDiv',
+          map: new Map({
+            basemap: 'satellite',
+            ground: 'world-elevation', // 世界高程
+          }),
+          spatialReference: {
+            wkid: 3857,
+          },
+        });
+        window.view = view;
+        let point = new Point({
+          latitude: 30.544446440503304,
+          longitude: 103.94829271624425,
+          z: 510,
+          spatialReference: view.spatialReference,
+        });
+        const graphic = new Graphic({
+          geometry: point,
+          symbol: {
+            type: 'simple-marker',
+            color: 'red',
+            size: '10px',
+          },
+        });
+
+        view.on('click', (e) => {
+          console.log(e);
+        });
+
+        const ThreeJSRenderNode = RenderNode.createSubclass({
+          constructor: function ({ view }) {
+            this.consumes = { required: ['composite-color'] };
+            this.produces = 'composite-color';
+
+            // 计算从局部笛卡尔坐标到虚拟世界坐标系的变换矩阵
+            const coord = [point.x, point.y, point.z]; // 点坐标
+            this.transAt = glMatrix.mat4.create();
+            webgl.renderCoordinateTransformAt(
+              view,
+              coord,
+              view.spatialReference,
+              this.transAt
+            );
+          },
+
+          render(inputs) {
+            // 计算间隔时间
+            const deltaTime = this.calculateDeltaTime();
+            const gl = this.gl;
+            const glState = this.saveGLState(gl);
+
+            try {
+              this.setupGLState(gl);
+              this.initThree();
+              this.renderThreeScene(deltaTime);
+            } catch (error) {
+              console.error('Error during render:', error);
+            } finally {
+              this.restoreGLState(gl, glState);
+            }
+
+            this.requestRender();
+            return inputs[0];
+          },
+
+          calculateDeltaTime() {
+            const now = performance.now();
+            if (!this.lastTime) this.lastTime = now;
+            const deltaTime = now - this.lastTime;
+            this.lastTime = now;
+            return deltaTime;
+          },
+
+          saveGLState(gl) {
+            return {
+              vbo: gl.getParameter(gl.VERTEX_ARRAY_BINDING), // 获取当前绑定的顶点数组对象
+              blend: gl.getParameter(gl.BLEND), // 获取是否启用混合的状态
+              depthMask: gl.getParameter(gl.DEPTH_WRITEMASK), // 获取当前 depthMask 状态
+              srcRGB: gl.getParameter(gl.BLEND_SRC_RGB), // 获取当前的源 RGB 混合因子
+              dstRGB: gl.getParameter(gl.BLEND_DST_RGB), // 获取当前的目标 RGB 混合因子
+              stencil: gl.getParameter(gl.STENCIL_TEST), // 获取当前的模板测试状态，返回true 或 false
+              depthTest: gl.getParameter(gl.DEPTH_TEST), // 获取深度测试参数
+            };
+          },
+
+          restoreGLState(gl, state) {
+            state.blend ? gl.enable(gl.BLEND) : gl.disable(gl.BLEND);
+            gl.depthMask(state.depthMask);
+            gl.blendFunc(state.srcRGB, state.dstRGB);
+            gl.bindVertexArray(state.vbo);
+            if (state.stencil) gl.enable(gl.STENCIL_TEST);
+            if (state.depthTest) gl.enable(gl.DEPTH_TEST);
+          },
+
+          setupGLState(gl) {
+            gl.depthMask(true); // 启用深度写入
+            gl.enable(gl.STENCIL_TEST); // 开启模板测试
+            gl.bindVertexArray(null); // 清除当前的 顶点数组对象（VAO） 绑定
+            gl.enable(gl.BLEND); // 启用混合状态
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); // 设置混合因子
+            gl.enable(gl.DEPTH_TEST); // 启用深度测试
+          },
+
+          renderThreeScene(deltaTime) {
+            if (this.threeRenderer) {
+              // 更新动画混合器
+              if (this.mixer) {
+                this.mixer.update(deltaTime / 1000);
+              }
+
+              // 设置相机位置
+              this.threeCamera.position.set(
+                this.camera.eye[0],
+                this.camera.eye[1],
+                this.camera.eye[2]
+              );
+              this.threeCamera.up = new THREE.Vector3(
+                this.camera.up[0],
+                this.camera.up[1],
+                this.camera.up[2]
+              );
+              this.threeCamera.lookAt(
+                this.camera.center[0],
+                this.camera.center[1],
+                this.camera.center[2]
+              );
+
+              this.threeCamera.projectionMatrix.fromArray(
+                this.camera.projectionMatrix
+              );
+
+              this.threeRenderer.render(this.threeScene, this.threeCamera);
+
+              this.threeRenderer.resetState();
+            }
+          },
+
+          initThree() {
+            if (this.threeRenderer) return;
+            this.setupRenderer();
+            this.setupScene();
+            this.setupLights();
+            this.loadModel();
+          },
+
+          setupRenderer() {
+            const renderer = new THREE.WebGLRenderer({
+              canvas: this.view.canvas,
+              context: this.gl,
+              alpha: true,
+            });
+            renderer.autoClearDepth = false; // 禁止自动清除深度缓冲区
+            renderer.autoClearColor = false; // 可选，禁止清除颜色缓冲区
+            renderer.autoClearStencil = false; // 可选，禁止清除模板缓冲区
+            renderer.setPixelRatio(window.devicePixelRatio);
+            this.threeRenderer = renderer;
+          },
+
+          setupScene() {
+            this.threeScene = new THREE.Scene();
+            this.threeCamera = new THREE.PerspectiveCamera(
+              this.view.camera.fov,
+              this.camera.width / this.camera.height,
+              0.1,
+              1000
+            );
+          },
+
+          setupLights() {
+            const { ambient, diffuse, direction } = this.sunLight;
+            const ambientColor = new THREE.Color().setRGB(...ambient.color);
+            const ambientLight = new THREE.AmbientLight(
+              ambientColor,
+              ambient.intensity
+            );
+            this.threeScene.add(ambientLight);
+
+            const diffuseColor = new THREE.Color().setRGB(...diffuse.color);
+            const directionalLight = new THREE.DirectionalLight(
+              diffuseColor,
+              diffuse.intensity * 10
+            );
+            directionalLight.position.set(
+              direction[0],
+              direction[1],
+              direction[2]
+            );
+            this.threeScene.add(directionalLight);
+          },
+
+          loadModel() {
+            const loader = new GLTFLoader();
+            loader.load('../../../assets/models/Cesium_Air.glb', (gltf) => this.onModelLoaded(gltf));
+          },
+
+          onModelLoaded(gltf) {
+            gltf.scene.scale.set(2, 2, 2);
+
+            const mat4 = new THREE.Matrix4().fromArray(this.transAt);
+            gltf.scene.applyMatrix4(mat4);
+            gltf.scene.rotateX((Math.PI / 180) * 90);
+            gltf.scene.rotateY((Math.PI / 180) * -22);
+            gltf.scene.rotateX((Math.PI / 180) * -10);
+
+            this.threeScene.add(gltf.scene);
+            this.setupAnimations(gltf);
+          },
+
+          setupAnimations(gltf) {
+            this.mixer = new THREE.AnimationMixer(gltf.scene);
+            const animations = gltf.animations;
+            if (animations?.length > 0) {
+              animations.forEach((clip) => this.mixer.clipAction(clip).play());
+            }
+          },
+        });
+
+        view.when(() => {
+          // view.graphics.add(graphic);
+
+          const camera = view.camera.clone();
+          camera.heading = 6.302821212640574;
+          camera.tilt = 77.69918866799841;
+          camera.position.latitude = 30.542563072214076;
+          camera.position.longitude = 103.94795989344615;
+          camera.position.z = 544.9695210885257;
+          view.goTo(camera);
+
+          new ThreeJSRenderNode({ view });
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <div id="viewDiv"></div>
+  </body>
+</html>
