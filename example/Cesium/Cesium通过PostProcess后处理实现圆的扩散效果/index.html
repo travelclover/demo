@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Cesium.js"></script>
+    <link
+      href="https://cesium.com/downloads/cesiumjs/releases/1.127/Build/Cesium/Widgets/widgets.css"
+      rel="stylesheet"
+    />
+    <title>Cesium通过PostProcess后处理实现圆的扩散效果</title>
+    <style>
+      #cesiumContainer {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+      }
+    </style>
+  </head>
+  <body type="module">
+    <div id="cesiumContainer"></div>
+
+    <script type="module">
+      // 创建cesium viewer
+      const viewer = new Cesium.Viewer('cesiumContainer', {
+        terrain: Cesium.Terrain.fromWorldTerrain(),
+      });
+      const longitude = 104.06334672354294; // 经度
+      const latitude = 30.659847825898527; // 纬度
+      const height = 460.5298252741061; // 高度
+      const point = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
+
+      // 跳转到目标点的上方
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(longitude, latitude, 3000),
+      });
+
+      // 添加cesium osm建筑
+      const buildingsTileset = await Cesium.createOsmBuildingsAsync();
+      viewer.scene.primitives.add(buildingsTileset);
+
+      const circleEffect = viewer.scene.postProcessStages.add(
+        new Cesium.PostProcessStage({
+          name: 'circleEffect',
+          fragmentShader: `
+            uniform sampler2D colorTexture; // 颜色纹理
+            uniform sampler2D depthTexture; // 深度纹理
+            uniform mat4 u_inverseViewMatrix; // 逆视图矩阵，用于将视空间坐标转换为世界坐标
+            uniform vec3 u_position; // 圆心位置
+            uniform vec3 u_panelNormal; // 圆心位置平面的法向量
+            uniform float u_radius; // 圆的半径
+            uniform float u_duration; // 圆扩散的持续时间
+            uniform float u_time; // 当前时间
+            in vec2 v_textureCoordinates; // 纹理坐标
+
+            // 混合两个颜色
+            vec4 blend(vec4 src, vec4 dst) {
+              return src * src.a + dst * (1.0 - src.a);
+            }
+
+            // 计算点到平面的投影点
+            vec3 projectPointOnPlane(vec3 normal, vec3 pointA, vec3 pointB) {
+              // 确保法向量是单位向量（归一化）
+              vec3 n = normalize(normal);
+              // 计算点B到点A的向量
+              vec3 ba = pointB - pointA;
+              // 计算点B到平面的垂直距离:dot(n, ba)
+              float distance = dot(n, ba);
+              // 计算投影点坐标
+              vec3 projection = pointB - distance * n;
+              return projection;
+            }
+
+            void main() {
+              vec4 deepColor = texture(depthTexture, v_textureCoordinates); // 获取深度纹理的颜色
+              float depth = czm_unpackDepth(deepColor); // 解码深度值
+              // 计算视空间坐标
+              vec4 eyeCoord = czm_windowToEyeCoordinates(gl_FragCoord.xy, depth); // 视空间坐标，齐次坐标
+              vec3 eyeCoordinate3 = eyeCoord.xyz/eyeCoord.w; // 透视除法，将齐次坐标转换为 3D 眼空间坐标
+
+              // 计算世界坐标
+              // vec4 worldPosition = u_inverseViewMatrix * vec4(eyeCoordinate3, 1.0);
+              // vec3 worldCoordinate = worldPosition.xyz / worldPosition.w;
+
+              // 计算投影点
+              vec3 projectionPoint = projectPointOnPlane(u_panelNormal, u_position, eyeCoordinate3);
+
+              // 计算距离
+              // float distance = length(worldPosition.xyz - u_position); // 用世界坐标计算距离，缺点：数值较大，精度较低
+              // float distance = length(eyeCoordinate3.xyz - u_position); // 用视空间坐标计算距离，优点：数值较小，精度较高，不会产生抖动效果
+              float distance = length(projectionPoint - u_position); // 用视空间坐标计算距离，优点：数值较小，精度较高，不会产生抖动效果
+
+              // 输出颜色
+              float t = mod(u_time, u_duration) / u_duration; // 计算当前时间在动画周期内的进度
+              float alpha = mod(distance / u_radius - t, 1.0); // 计算透明度
+
+              out_FragColor = texture(colorTexture, v_textureCoordinates); // 获取颜色纹理的颜色
+              if (distance < u_radius) {
+                // 带透明度的颜色和不带透明度颜色的融合
+                out_FragColor = blend(vec4(1.0, 0.0, 0.0, alpha), out_FragColor);
+              }
+
+            }
+          `,
+          uniforms: {
+            u_inverseViewMatrix: function () {
+              return Cesium.Matrix4.inverse(
+                viewer.camera.viewMatrix,
+                new Cesium.Matrix4()
+              );
+            },
+            // 平行于地面的平面的法向量
+            u_panelNormal: function () {
+              // 高于地面500米的点
+              const pointH = Cesium.Cartesian3.fromDegrees(
+                longitude,
+                latitude,
+                height + 500
+              );
+              const viewMatrix = viewer.camera.viewMatrix; // 视图矩阵
+              const transformedPoint = Cesium.Matrix4.multiplyByPoint(
+                viewMatrix,
+                point,
+                new Cesium.Cartesian3()
+              );
+              const transformedPointH = Cesium.Matrix4.multiplyByPoint(
+                viewMatrix,
+                pointH,
+                new Cesium.Cartesian3()
+              );
+              // 计算法向量
+              let normal = Cesium.Cartesian3.subtract(
+                transformedPointH,
+                transformedPoint,
+                new Cesium.Cartesian3()
+              );
+              Cesium.Cartesian3.normalize(normal, normal);
+              return normal;
+            },
+            u_position: function () {
+              // 应用视图矩阵变换
+              const viewMatrix = viewer.camera.viewMatrix;
+              const transformedPoint = Cesium.Matrix4.multiplyByPoint(
+                viewMatrix,
+                point,
+                new Cesium.Cartesian3()
+              );
+              return transformedPoint;
+            },
+            u_radius: 500,
+            u_duration: 2000, // 持续时间，单位为毫秒
+            u_time: function () {
+              return performance.now();
+            },
+          },
+        })
+      );
+    </script>
+  </body>
+</html>

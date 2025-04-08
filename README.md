@@ -17,6 +17,9 @@
 12. ArcGIS JS API实现飞行漫游功能 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现飞行漫游功能.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现飞行漫游功能.html)]  
 13. ArcGIS JS API实现水淹模拟功能 [[在线示例](https://travelclover.github.io/demo/example/ArcGIS/ArcGIS%20JS%20API实现水淹模拟功能/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/ArcGIS/ArcGIS%20JS%20API实现水淹模拟功能/index.html)]  
 
+## Cesium相关demo
+1. Cesium通过PostProcess后处理实现圆的扩散效果 [[在线示例](https://travelclover.github.io/demo/example/Cesium/Cesium通过PostProcess后处理实现圆的扩散效果/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/Cesium/Cesium通过PostProcess后处理实现圆的扩散效果/index.html)]  
+
 ## Three.js相关demo
 1. Three.js实现抛物线动态流向效果 [[在线示例](https://travelclover.github.io/demo/example/Three.js实现抛物线动态流向效果)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/Three.js实现抛物线动态流向效果.html)]  
 
