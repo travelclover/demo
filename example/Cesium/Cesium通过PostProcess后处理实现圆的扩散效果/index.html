@@ -23,6 +23,7 @@
     <div id="cesiumContainer"></div>
 
     <script type="module">
+      Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkZTllYzUxMy01MDliLTRiYmQtYmE1YS00OWIwYTRiMGM4YzQiLCJpZCI6Mjc2MjU1LCJpYXQiOjE3Mzk2MzA2NjZ9.tFaCPlZ-S33iK_eGbAE7pBmkzryIYGefh_qxKjcYwRo';
       // 创建cesium viewer
       const viewer = new Cesium.Viewer('cesiumContainer', {
         terrain: Cesium.Terrain.fromWorldTerrain(),
