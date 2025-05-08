@@ -27,6 +27,7 @@
 1. 使用canvas实现粒子流动效果 [[在线示例](https://travelclover.github.io/demo/example/canvas/使用canvas实现粒子流动效果)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/canvas/使用canvas实现粒子流动效果.html)]
 
 ## 其它demo
+1. Web Component示例-带搜索功能的下拉框 [[在线示例](https://travelclover.github.io/demo/example/other/Web%20Component示例-带搜索功能的下拉框/index.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/other/Web%20Component示例-带搜索功能的下拉框/index.html)]  
 1. 使用driver.js实现用户引导功能 [[在线示例](https://travelclover.github.io/demo/example/other/使用driver.js实现用户引导功能)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/other/使用driver.js实现用户引导功能.html)]  
 2. 使用pdf.js库实现PDF在线预览 [[在线示例](https://travelclover.github.io/demo/example/使用pdf.js库实现PDF在线预览)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/使用pdf.js库实现PDF在线预览.html)]  
 1. 使用IntersectionObserver API实现无限滚动功能 [[在线示例](https://travelclover.github.io/demo/example/other/使用IntersectionObserver%20API实现无限滚动功能.html)] [[在线代码](https://github.com/travelclover/demo/blob/gh-pages/example/other/使用IntersectionObserver%20API实现无限滚动功能.html)]  

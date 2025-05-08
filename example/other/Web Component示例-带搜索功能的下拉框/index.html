@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Component示例-带搜索功能的下拉框</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/themes/prism-tomorrow.min.css"
+      integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <style>
+      body {
+        font-family: 'Arial', sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+      }
+      .container {
+        margin: 40px 0;
+      }
+      .example {
+        margin-bottom: 30px;
+        padding: 20px;
+        border: 1px solid #eee;
+        border-radius: 5px;
+        background-color: #f9f9f9;
+      }
+      .code-block {
+        background-color: #f5f5f5;
+        padding: 15px;
+        border-radius: 5px;
+        overflow-x: auto;
+        margin: 20px 0;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+      }
+      .select {
+        min-height: 36px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Web Component示例-带搜索功能的下拉框</h1>
+
+    <div class="container">
+      <div class="example">
+        <h2>示例 1：基本使用</h2>
+        <searchable-select class="select" placeholder="请选择一个城市" id="citySelect">
+          <option value="beijing">北京</option>
+          <option value="shanghai">上海</option>
+          <option value="guangzhou">广州</option>
+          <option value="shenzhen">深圳</option>
+          <option value="hangzhou">杭州</option>
+          <option value="nanjing">南京</option>
+          <option value="chengdu">成都</option>
+          <option value="wuhan">武汉</option>
+        </searchable-select>
+
+        <div style="margin-top: 20px">
+          <button id="getValue">获取选中值</button>
+          <div id="selectedValue" style="margin-top: 10px"></div>
+        </div>
+      </div>
+
+      <div class="example">
+        <h2>示例 2：动态添加选项</h2>
+        <searchable-select
+          class="select"
+          placeholder="请选择一个水果"
+          id="fruitSelect"
+        ></searchable-select>
+        <div style="margin-top: 20px">
+          <button id="addFruit">添加更多水果</button>
+        </div>
+      </div>
+
+      <div class="code-block">
+        <h3>使用方法：</h3>
+        <p>
+          先引入定义的组件<a
+            target="_blank"
+            href="https://github.com/travelclover/demo/blob/master/example/other/Web%20Component示例-带搜索功能的下拉框/SearchableSelect.js"
+            >SearchableSelect</a
+          >:
+        </p>
+        <pre><code class="language-html">&lt;script src="./SearchableSelect.js"&gt;&lt;/script&gt;</code></pre>
+        <p>然后注册自定义组件：</p>
+        <pre><code class="language-javascript">customElements.define('searchable-select', SearchableSelect);</code></pre>
+        <p>最后和原生标签&lt;select&gt;一样的使用方法：</p>
+        <pre><code class="language-html">&lt;searchable-select placeholder="请选择一个选项"&gt;
+  &lt;option value="value1"&gt;选项1&lt;/option&gt;
+  &lt;option value="value2"&gt;选项2&lt;/option&gt;
+  &lt;option value="value3"&gt;选项3&lt;/option&gt;
+&lt;/searchable-select&gt;</code></pre>
+      </div>
+    </div>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.30.0/prism.min.js"
+      integrity="sha512-HiD3V4nv8fcjtouznjT9TqDNDm1EXngV331YGbfVGeKUoH+OLkRTCMzA34ecjlgSQZpdHZupdSrqHY+Hz3l6uQ=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="./SearchableSelect.js"></script>
+    <script>
+      // 注册自定义元素
+      customElements.define('searchable-select', SearchableSelect);
+
+      // 示例代码
+      document.addEventListener('DOMContentLoaded', () => {
+        // 示例1：获取选中值
+        const citySelect = document.getElementById('citySelect');
+        const getValueBtn = document.getElementById('getValue');
+        const selectedValueDiv = document.getElementById('selectedValue');
+
+        getValueBtn.addEventListener('click', () => {
+          const value = citySelect.value;
+          const text = citySelect.getText();
+          selectedValueDiv.textContent = `选中值: ${value}, 文本: ${text}`;
+        });
+
+        // 示例2：动态添加选项
+        const fruitSelect = document.getElementById('fruitSelect');
+        const addFruitBtn = document.getElementById('addFruit');
+
+        // 初始水果
+        const initialFruits = [
+          { value: 'apple', text: '苹果' },
+          { value: 'banana', text: '香蕉' },
+          { value: 'orange', text: '橙子' },
+        ];
+
+        // 添加初始水果
+        initialFruits.forEach((fruit) => {
+          const option = document.createElement('option');
+          option.value = fruit.value;
+          option.textContent = fruit.text;
+          fruitSelect.appendChild(option);
+        });
+
+        // 更多水果
+        const moreFruits = [
+          { value: 'grape', text: '葡萄' },
+          { value: 'watermelon', text: '西瓜' },
+          { value: 'pear', text: '梨' },
+          { value: 'strawberry', text: '草莓' },
+        ];
+
+        let fruitIndex = 0;
+
+        // 添加更多水果按钮
+        addFruitBtn.addEventListener('click', () => {
+          if (fruitIndex < moreFruits.length) {
+            const fruit = moreFruits[fruitIndex];
+            const option = document.createElement('option');
+            option.value = fruit.value;
+            option.textContent = fruit.text;
+            fruitSelect.appendChild(option);
+            fruitIndex++;
+
+            if (fruitIndex === moreFruits.length) {
+              addFruitBtn.disabled = true;
+              addFruitBtn.textContent = '已添加所有水果';
+            }
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
