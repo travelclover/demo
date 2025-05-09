@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>使用proj4js实现全球坐标转换</title>
+    <style>
+      body {
+        font-family: 'Arial', sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+      }
+      .row > * {
+        margin-right: 10px;
+      }
+      .select {
+        height: auto;
+      }
+      .label {
+        min-width: 100px;
+        display: inline-block;
+      }
+      .result {
+        padding: 0 5px;
+        min-width: 153px;
+        min-height: 22px;
+        display: inline-block;
+        background: #ccc;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>使用proj4js实现全球坐标转换</h1>
+    <hr />
+    <br />
+    <div class="row">
+      <span class="label">原坐标系：</span>
+      <searchable-select class="select" id="fromProjection" placeholder="请选择">
+      </searchable-select>
+      <span>x:</span>
+      <input type="text" id="longitude" value="108.3434343434" />
+      <span>y:</span>
+      <input type="text" id="latitude" value="30" />
+      <button id="convertBtn">转换</button>
+    </div>
+    <br />
+    <br />
+
+    <div class="row">
+      <span class="label">目标坐标系：</span>
+      <searchable-select class="select" id="toProjection"></searchable-select>
+      <span>x:</span>
+      <span id="resultX" class="result"></span>
+      <span>y:</span>
+      <span id="resultY" class="result"></span>
+    </div>
+
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.15.0/proj4.min.js"
+      integrity="sha512-4cx6CH/aJi50kdbQ5dj6bDJM1WS0AOFBGgBfgSP2Ux2eK/5JhkL2pjUDIHwd8z6rfGuGr/aptDqs0EzbeRndvQ=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="./projDefs.js"></script>
+    <script src="../Web Component示例-带搜索功能的下拉框/SearchableSelect.js"></script>
+
+    <script>
+      customElements.define('searchable-select', SearchableSelect);
+
+      const fromProjectionSelector = document.getElementById('fromProjection');
+      const toProjectionSelector = document.getElementById('toProjection');
+      const convertBtn = document.getElementById('convertBtn');
+      const longitudeInput = document.getElementById('longitude');
+      const latitudeInput = document.getElementById('latitude');
+      const resultX = document.getElementById('resultX');
+      const resultY = document.getElementById('resultY');
+
+      // 设置下拉框选项
+      const projections = Object.keys(proj4.defs).sort((a, b) => {
+        const aEPSG = Number(a.split(':')[1]);
+        const bEPSG = Number(b.split(':')[1]);
+        return aEPSG - bEPSG;
+      });
+      projections.forEach((projection) => {
+        const option = document.createElement('option');
+        option.value = projection;
+        option.textContent = projection;
+        fromProjectionSelector.appendChild(option.cloneNode(true));
+        toProjectionSelector.appendChild(option);
+      });
+
+      // 设置默认值
+      fromProjectionSelector.value = 'EPSG:4326';
+      toProjectionSelector.value = 'EPSG:3857';
+
+      convertBtn.addEventListener('click', () => {
+        try {
+          const fromProjection = fromProjectionSelector.value;
+          const toProjection = toProjectionSelector.value;
+          const longitudeVal = Number(longitudeInput.value);
+          const latitudeVal = Number(latitudeInput.value);
+          const result = proj4(fromProjection, toProjection, [
+            longitudeVal,
+            latitudeVal,
+          ]);
+          resultX.textContent = result[0];
+          resultY.textContent = result[1];
+        } catch (error) {
+          window.alert(error);
+        }
+      });
+    </script>
+  </body>
+</html>
