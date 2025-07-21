@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenLayers实现地图遮罩效果</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css"
+    />
+    <style>
+      .map {
+        position: absolute;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
+    <script src="./chengdu.js"></script>
+    <div id="map" class="map"></div>
+
+    <script type="module">
+      const TileLayer = ol.layer.Tile; // 瓦片图层类
+      const XYZ = ol.source.XYZ; // XYZ瓦片数据源
+      const { get } = ol.proj; // 投影坐标系获取函数
+      const { getVectorContext } = ol.render; // 获取矢量渲染上下文
+      const Style = ol.style.Style; // 样式类
+      const Fill = ol.style.Fill; // 填充样式类
+      const Polygon = ol.geom.Polygon; // 多边形几何类
+      const VectorLayer = ol.layer.Vector; // 矢量图层类
+      const VectorSource = ol.source.Vector; // 矢量数据源类
+      const Feature = ol.Feature; // 要素类
+
+      // 天地图API密钥
+      const tiandituToken = 'b9b76139ce2eea5561cf38f8a7d72c06';
+      // 设置地图投影坐标系为WGS84经纬度坐标系
+      const projection = ol.proj.get('EPSG:4326');
+
+      // 初始化应用程序
+      init();
+
+      /**
+       * 初始化函数 - 创建地图并添加图层
+       */
+      function init() {
+        // 创建地图实例
+        const map = new ol.Map({
+          target: 'map', // 对应HTML中的div元素id
+          view: new ol.View({
+            center: [103.9444205, 30.762084], // 地图中心点坐标（成都市中心）
+            zoom: 10, // 初始缩放级别
+            projection, // 使用的投影坐标系
+          }),
+        });
+
+        addTianDiTu(map); // 添加天地图底图图层
+
+        addMaskLayer(map); // 添加遮罩图层
+      }
+
+      /**
+       * 添加天地图图层函数
+       * @param {Map} map - OpenLayers地图实例
+       */
+      function addTianDiTu(map) {
+        // 添加天地图矢量底图图层
+        const vecLayer = new TileLayer({
+          source: new XYZ({
+            // 天地图矢量底图服务URL，使用{0-7}表示服务器负载均衡
+            url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=vec_c&tk=${tiandituToken}&x={x}&y={y}&l={z}`,
+            tileSize: 256, // 瓦片大小
+            projection, // 投影坐标系
+          }),
+        });
+
+        // 添加天地图注记层（地名标注层）
+        const cvaLayer = new TileLayer({
+          source: new XYZ({
+            // 天地图注记层服务URL
+            url: `https://t{0-7}.tianditu.gov.cn/DataServer?T=cva_c&tk=${tiandituToken}&x={x}&y={y}&l={z}`,
+            tileSize: 256, // 瓦片大小
+            projection, // 投影坐标系
+          }),
+        });
+
+        // 将底图图层和注记层添加到地图中
+        map.addLayer(vecLayer);
+        map.addLayer(cvaLayer);
+      }
+
+      /**
+       * 添加遮罩图层函数 - 实现区域外遮罩效果
+       * @param {Map} map - OpenLayers地图实例
+       */
+      function addMaskLayer(map) {
+        // 创建遮罩矢量图层
+        const maskLayer = new VectorLayer({
+          id: 'maskLayer', // 图层唯一标识
+          source: new VectorSource({
+            features: [
+              new Feature({
+                geometry: new Polygon(coordinates), // 使用成都市边界坐标创建多边形
+              }),
+            ],
+          }),
+          style: new Style({
+            fill: new Fill({
+              color: 'rgba(0, 0, 0, 0)', // 透明填充，不显示多边形本身
+            }),
+          }),
+          properties: {
+            maskColor: 'rgba(0, 255, 0, 0.9)', // 遮罩颜色（半透明）
+          },
+        });
+
+        // 创建离屏画布用于缓存地图内容
+        const [offscreenCanvas, offscreenCtx] = createOffscreenCanvas(map);
+
+        // 监听图层的后渲染事件，实现遮罩效果
+        maskLayer.on('postrender', function (event) {
+          // 获取多边形几何对象
+          const geometry = event.target
+            .getSource()
+            .getFeatures()[0]
+            .getGeometry();
+          // 获取遮罩颜色，如果未设置则使用默认颜色
+          const maskColor =
+            event.target.getProperties().maskColor || 'rgba(0, 0, 0, 0.5)';
+
+          // 获取当前渲染上下文
+          const ctx = event.context;
+          ctx.save(); // 保存当前画布状态
+
+          // 将当前画布内容复制到离屏画布
+          offscreenCtx.drawImage(ctx.canvas, 0, 0);
+
+          // 在整个画布上绘制遮罩颜色
+          ctx.fillStyle = maskColor;
+          ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+          // 获取矢量渲染上下文
+          const vecCtx = getVectorContext(event);
+          ctx.beginPath();
+          // 设置透明样式用于创建裁剪路径
+          vecCtx.setStyle(
+            new Style({ fill: new Fill({ color: 'transparent' }) })
+          );
+          // 绘制多边形几何形状
+          vecCtx.drawGeometry(geometry);
+          // 使用多边形路径作为裁剪区域
+          ctx.clip();
+
+          // 在裁剪区域内绘制原始地图内容（无遮罩效果）
+          ctx.drawImage(offscreenCanvas, 0, 0);
+          ctx.restore(); // 恢复画布状态
+        });
+
+        // 将遮罩图层添加到地图中
+        maskLayer.setMap(map);
+      }
+
+      /**
+       * 创建离屏画布函数 - 用于缓存地图渲染内容
+       * @param {Map} map - OpenLayers地图实例
+       * @returns {Array} 返回包含离屏画布和其2D渲染上下文的数组 [canvas, context]
+       */
+      function createOffscreenCanvas(map) {
+        // 获取地图容器的尺寸
+        const mapSize = map.getSize();
+        // 获取设备像素比，用于高分辨率屏幕适配
+        const dpr = window.devicePixelRatio || 1;
+
+        // 创建离屏画布元素
+        const offscreenCanvas = document.createElement('canvas');
+        // 设置画布宽度，考虑设备像素比以确保清晰度
+        offscreenCanvas.width = mapSize[0] * dpr;
+        // 设置画布高度，考虑设备像素比以确保清晰度
+        offscreenCanvas.height = mapSize[1] * dpr;
+
+        // 获取2D渲染上下文
+        const offscreenCtx = offscreenCanvas.getContext('2d');
+
+        // 返回画布和上下文对象
+        return [offscreenCanvas, offscreenCtx];
+      }
+    </script>
+  </body>
+</html>
